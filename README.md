@@ -163,10 +163,10 @@ This is useful for enforcing read-only access or reducing context for the LLM. W
       "env": {
         "EMAIL_BACKEND": "jmap",
         "JMAP_TOKEN": "your-fastmail-api-token",
-        "CALDAV_URL": "https://caldav.fastmail.com/dav/calendars",
+        "CALDAV_URL": "https://caldav.fastmail.com/",
         "CALDAV_USERNAME": "you@fastmail.com",
         "CALDAV_PASSWORD": "your-app-password",
-        "CARDDAV_URL": "https://carddav.fastmail.com/dav/addressbooks",
+        "CARDDAV_URL": "https://carddav.fastmail.com/",
         "CARDDAV_USERNAME": "you@fastmail.com",
         "CARDDAV_PASSWORD": "your-app-password"
       }
