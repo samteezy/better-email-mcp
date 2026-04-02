@@ -38,6 +38,7 @@ interface SmtpResponse {
 
 export class SmtpClient {
   private socket: net.Socket | tls.TLSSocket | null = null;
+  private host = "";
   private buffer = "";
   private capabilities: string[] = [];
 
@@ -46,6 +47,7 @@ export class SmtpClient {
   private responseLines: string[] = [];
 
   async connect(config: SmtpClientConfig): Promise<void> {
+    this.host = config.host;
     return new Promise((resolve, reject) => {
       this.responseResolve = (resp) => {
         if (resp.code === 220) {
@@ -123,7 +125,7 @@ export class SmtpClient {
     const rawSocket = this.socket as net.Socket;
     rawSocket.removeAllListeners("data");
 
-    const tlsSocket = tls.connect({ socket: rawSocket });
+    const tlsSocket = tls.connect({ socket: rawSocket, servername: this.host });
 
     await new Promise<void>((resolve, reject) => {
       tlsSocket.once("secureConnect", resolve);
