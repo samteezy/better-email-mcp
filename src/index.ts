@@ -8,6 +8,7 @@ import { CalDavBackend } from "./caldav/backend.js";
 import { CardDavBackend } from "./carddav/backend.js";
 import { registerEmailTools } from "./tools/register.js";
 import { registerCalendarTools } from "./tools/calendar.js";
+import { registerTaskTools } from "./tools/tasks.js";
 import { registerContactTools } from "./tools/contacts.js";
 import { EmailBackend, ContactsBackend } from "./types.js";
 
@@ -71,7 +72,7 @@ function createBackend(): EmailBackend {
 
 const server = new McpServer({
   name: "better-email-mcp",
-  version: "0.3.0",
+  version: "0.4.0",
 });
 
 const backend = createBackend();
@@ -93,6 +94,7 @@ if (process.env.CALDAV_URL) {
     password,
   });
   registerCalendarTools(server, calendarBackend);
+  registerTaskTools(server, calendarBackend);
 }
 
 // Contacts — CardDAV when CARDDAV_URL is set, otherwise JMAP contacts when using JMAP backend

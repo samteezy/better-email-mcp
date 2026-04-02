@@ -56,6 +56,7 @@ export interface CalendarInfo {
   name: string;
   color?: string;
   description?: string;
+  supportedComponents?: string[];
 }
 
 export interface CalendarEvent {
@@ -91,6 +92,68 @@ export interface CalendarBackend {
   listEvents(options?: ListEventsOptions): Promise<CalendarEvent[]>;
   getEvent(href: string): Promise<CalendarEvent | null>;
   searchEvents(options: SearchEventsOptions): Promise<CalendarEvent[]>;
+}
+
+// --- Task types ---
+
+export interface TaskInfo {
+  id: string;
+  href: string;
+  calendar: string;
+  title: string;
+  status?: string;
+  priority?: number;
+  due?: string;
+  start?: string;
+  completed?: string;
+  percentComplete?: number;
+  description?: string;
+  categories?: string[];
+  recurrence?: string;
+}
+
+export interface ListTasksOptions {
+  calendar?: string;
+  limit?: number;
+  status?: string;
+}
+
+export interface SearchTasksOptions {
+  query: string;
+  calendar?: string;
+  limit?: number;
+}
+
+export interface CreateTaskOptions {
+  calendar?: string;
+  title: string;
+  description?: string;
+  due?: string;
+  priority?: number;
+  categories?: string[];
+  status?: string;
+}
+
+export interface UpdateTaskOptions {
+  href: string;
+  title?: string;
+  description?: string;
+  due?: string;
+  priority?: number;
+  status?: string;
+  percentComplete?: number;
+  categories?: string[];
+}
+
+export interface TaskBackend {
+  connect(): Promise<void>;
+  listCalendars(): Promise<CalendarInfo[]>;
+  listTasks(options?: ListTasksOptions): Promise<TaskInfo[]>;
+  getTask(href: string): Promise<TaskInfo | null>;
+  searchTasks(options: SearchTasksOptions): Promise<TaskInfo[]>;
+  createTask(options: CreateTaskOptions): Promise<TaskInfo>;
+  updateTask(options: UpdateTaskOptions): Promise<TaskInfo>;
+  completeTask(href: string): Promise<TaskInfo>;
 }
 
 // --- Contact types ---

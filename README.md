@@ -1,11 +1,11 @@
 # better-email-mcp
 
-An MCP server that gives LLM tools access to your email, calendar, and contacts — built to be the one you actually want to use.
+An MCP server that gives LLM tools access to your email, calendar, tasks, and contacts — built to be the one you actually want to use.
 
 ## Why "better"?
 
 - **Virtually zero dependencies.** The only runtime dependency is the MCP SDK itself. IMAP, SMTP, CalDAV, and CardDAV clients are implemented from scratch using Node built-ins — no third-party libraries in your supply chain.
-- **Works with any provider.** Supports IMAP/SMTP (Gmail, Outlook, self-hosted, etc.), Fastmail JMAP (email + contacts), and any CalDAV/CardDAV server (Fastmail, iCloud, Nextcloud, Radicale, etc.).
+- **Works with any provider.** Supports IMAP/SMTP (Gmail, Outlook, self-hosted, etc.), Fastmail JMAP (email + contacts), and any CalDAV/CardDAV server (Fastmail, iCloud, Nextcloud, Radicale, etc.) for calendars, tasks, and contacts.
 - **You control what the LLM can do.** Disable any tool with a single environment variable — enforce read-only access, hide search, or strip it down to just what you need. Less tool clutter means better LLM performance.
 - **Token-efficient.** List and search responses return only essential fields by default. Pass `verbose: true` for full details when needed.
 
@@ -81,7 +81,7 @@ If `SMTP_HOST` is not set, the IMAP backend is read-only and the `send_message` 
 
 ### CalDAV (calendar)
 
-Calendar tools activate when `CALDAV_URL` is set. Works alongside any email backend.
+Calendar and task tools activate when `CALDAV_URL` is set. Works alongside any email backend. Tasks use CalDAV VTODO — supported by Fastmail, iCloud, Nextcloud, Radicale, and most CalDAV servers.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -199,6 +199,17 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 | `get_event` | Get a single event by href, including full details |
 | `search_events` | Search events by text query (matches title, description, location) |
 
+### Tasks (CalDAV VTODO)
+
+| Tool | Description |
+|------|-------------|
+| `list_tasks` | List tasks with optional calendar, status filter, and limit |
+| `get_task` | Get a single task by href, including full details |
+| `search_tasks` | Search tasks by text query (matches title, description, categories) |
+| `create_task` | Create a new task with title, due date, priority, categories |
+| `update_task` | Update an existing task's fields |
+| `complete_task` | Mark a task as completed |
+
 ### Contacts (CardDAV)
 
 | Tool | Description |
@@ -210,7 +221,7 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 
 ## Token efficiency
 
-All tool responses use compact JSON (no pretty-printing). List and search tools (`list_messages`, `search_messages`, `list_events`, `search_events`, `list_contacts`, `search_contacts`) return a lean field set by default — just enough to identify and triage each item. Pass `verbose: true` to get the full response with all fields.
+All tool responses use compact JSON (no pretty-printing). List and search tools (`list_messages`, `search_messages`, `list_events`, `search_events`, `list_tasks`, `search_tasks`, `list_contacts`, `search_contacts`) return a lean field set by default — just enough to identify and triage each item. Pass `verbose: true` to get the full response with all fields.
 
 **Default fields by tool type:**
 
@@ -218,6 +229,7 @@ All tool responses use compact JSON (no pretty-printing). List and search tools 
 |-----------|---------------|--------------------------------|
 | Email list/search | `id`, `from`, `subject`, `date`, `snippet` | `to`, `cc`, `isRead`, `folder` |
 | Calendar list/search | `id`, `href`, `title`, `start`, `end`, `location`, `allDay` | `description`, `organizer`, `attendees`, `status`, `recurrence`, `calendar` |
+| Task list/search | `id`, `href`, `title`, `status`, `due`, `priority` | `description`, `categories`, `start`, `completed`, `percentComplete`, `recurrence`, `calendar` |
 | Contact list/search | `id`, `href`, `name`, `emails`, `phones` | `organization`, `title`, `address`, `notes`, `addressBook` |
 
 The `folder`, `calendar`, and `addressBook` fields are automatically included in lean responses when no filter is applied (listing across all), and omitted when filtering by a specific one (since it's redundant).

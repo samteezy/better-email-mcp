@@ -1,12 +1,28 @@
 /**
  * iCalendar (RFC 5545) parser.
  *
- * Hand-written parser for VCALENDAR/VEVENT data. Handles line unfolding,
- * property parameter extraction, date/duration conversion, and text
- * unescaping. No external dependencies.
+ * Hand-written parser for VCALENDAR/VEVENT and VTODO data. Handles line
+ * unfolding, property parameter extraction, date/duration conversion, and
+ * text unescaping. No external dependencies (except node:crypto for UUID).
  */
 
+import { randomUUID } from "node:crypto";
+
 // --- Types ---
+
+export interface ParsedVTodo {
+  uid: string;
+  summary: string;
+  dtstart?: string;
+  due?: string;
+  completed?: string;
+  description?: string;
+  status?: string;
+  priority?: number;
+  percentComplete?: number;
+  categories?: string[];
+  rrule?: string;
+}
 
 export interface ParsedVEvent {
   uid: string;
@@ -171,9 +187,45 @@ function addDuration(dtValue: string, duration: string, dtParams?: string): stri
 // --- Text helpers ---
 
 /**
+ * Escape text for iCalendar serialization per RFC 5545 §3.3.11.
+ */
+export function escapeText(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\n/g, "\\n");
+}
+
+/**
+ * Convert an ISO 8601 date or datetime to iCalendar format.
+ *
+ *   2025-04-15           → 20250415
+ *   2025-04-15T14:30:00Z → 20250415T143000Z
+ *   2025-04-15T14:30:00  → 20250415T143000
+ */
+export function isoToICalDate(iso: string): string {
+  // Strip timezone bracket suffix if present: "2025-04-15T14:30:00 [America/New_York]"
+  const clean = iso.replace(/\s*\[.*\]$/, "").trim();
+
+  // Date only: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    return clean.replace(/-/g, "");
+  }
+
+  // Datetime: YYYY-MM-DDTHH:MM:SS[Z]
+  const m = clean.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(Z)?$/);
+  if (m) {
+    return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6]}${m[7] || ""}`;
+  }
+
+  return clean;
+}
+
+/**
  * Unescape iCalendar text values per RFC 5545 §3.3.11.
  */
-function unescapeText(text: string): string {
+export function unescapeText(text: string): string {
   let result = "";
   for (let i = 0; i < text.length; i++) {
     if (text[i] === "\\" && i + 1 < text.length) {
@@ -388,4 +440,173 @@ function parseVEvent(lines: string[]): ParsedVEvent | null {
     ...(rrule !== undefined && { rrule }),
     allDay,
   };
+}
+
+// --- VTODO parser ---
+
+/**
+ * Parse an iCalendar string and return all VTODOs as structured objects.
+ */
+export function parseVTodos(ical: string): ParsedVTodo[] {
+  const unfolded = ical
+    .replace(/\r\n[ \t]/g, "")
+    .replace(/\n[ \t]/g, "");
+
+  const lines = unfolded.split(/\r\n|\r|\n/);
+
+  const todos: ParsedVTodo[] = [];
+  let inTodo = false;
+  let todoLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "BEGIN:VTODO") {
+      inTodo = true;
+      todoLines = [];
+    } else if (trimmed === "END:VTODO") {
+      if (inTodo) {
+        const todo = parseVTodo(todoLines);
+        if (todo) todos.push(todo);
+      }
+      inTodo = false;
+    } else if (inTodo) {
+      todoLines.push(line);
+    }
+  }
+
+  return todos;
+}
+
+function parseVTodo(lines: string[]): ParsedVTodo | null {
+  let uid = "";
+  let summary = "";
+  let dtstart: string | undefined;
+  let due: string | undefined;
+  let completed: string | undefined;
+  let description: string | undefined;
+  let status: string | undefined;
+  let priority: number | undefined;
+  let percentComplete: number | undefined;
+  let rrule: string | undefined;
+  let categories: string[] | undefined;
+
+  for (const line of lines) {
+    const prop = parseProperty(line);
+    if (!prop) continue;
+
+    switch (prop.name) {
+      case "UID":
+        uid = prop.value;
+        break;
+      case "SUMMARY":
+        summary = unescapeText(prop.value);
+        break;
+      case "DTSTART":
+        dtstart = icalDateToISO(prop.value, prop.params);
+        break;
+      case "DUE":
+        due = icalDateToISO(prop.value, prop.params);
+        break;
+      case "COMPLETED":
+        completed = icalDateToISO(prop.value, prop.params);
+        break;
+      case "DESCRIPTION":
+        description = unescapeText(prop.value);
+        break;
+      case "STATUS":
+        status = prop.value;
+        break;
+      case "PRIORITY":
+        priority = parseInt(prop.value, 10);
+        break;
+      case "PERCENT-COMPLETE":
+        percentComplete = parseInt(prop.value, 10);
+        break;
+      case "RRULE":
+        rrule = prop.value;
+        break;
+      case "CATEGORIES":
+        categories = prop.value.split(",").map((s) => unescapeText(s.trim()));
+        break;
+    }
+  }
+
+  return {
+    uid,
+    summary,
+    ...(dtstart !== undefined && { dtstart }),
+    ...(due !== undefined && { due }),
+    ...(completed !== undefined && { completed }),
+    ...(description !== undefined && { description }),
+    ...(status !== undefined && { status }),
+    ...(priority !== undefined && { priority }),
+    ...(percentComplete !== undefined && { percentComplete }),
+    ...(categories !== undefined && { categories }),
+    ...(rrule !== undefined && { rrule }),
+  };
+}
+
+// --- VTODO serializer ---
+
+/**
+ * Serialize task data into an iCalendar VCALENDAR/VTODO string for PUT requests.
+ */
+export function serializeVTodo(
+  fields: {
+    title: string;
+    description?: string;
+    due?: string;
+    start?: string;
+    priority?: number;
+    categories?: string[];
+    status?: string;
+    percentComplete?: number;
+    completed?: string;
+  },
+  existingUid?: string
+): string {
+  const uid = existingUid || `${randomUUID()}@better-email-mcp`;
+  const now = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
+
+  const lines: string[] = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//better-email-mcp//EN",
+    "BEGIN:VTODO",
+    `UID:${uid}`,
+    `DTSTAMP:${now}`,
+    `SUMMARY:${escapeText(fields.title)}`,
+  ];
+
+  if (fields.description) {
+    lines.push(`DESCRIPTION:${escapeText(fields.description)}`);
+  }
+  if (fields.due) {
+    lines.push(`DUE:${isoToICalDate(fields.due)}`);
+  }
+  if (fields.start) {
+    lines.push(`DTSTART:${isoToICalDate(fields.start)}`);
+  }
+  if (fields.priority !== undefined) {
+    lines.push(`PRIORITY:${fields.priority}`);
+  }
+  if (fields.status) {
+    lines.push(`STATUS:${fields.status}`);
+  }
+  if (fields.percentComplete !== undefined) {
+    lines.push(`PERCENT-COMPLETE:${fields.percentComplete}`);
+  }
+  if (fields.completed) {
+    lines.push(`COMPLETED:${isoToICalDate(fields.completed)}`);
+  }
+  if (fields.categories && fields.categories.length > 0) {
+    lines.push(`CATEGORIES:${fields.categories.map(escapeText).join(",")}`);
+  }
+
+  lines.push("END:VTODO", "END:VCALENDAR");
+
+  return lines.join("\r\n") + "\r\n";
 }

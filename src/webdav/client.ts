@@ -54,6 +54,17 @@ export class WebDavClient {
     return this.request("GET", path, undefined);
   }
 
+  async put(
+    path: string,
+    body: string,
+    extraHeaders?: Record<string, string>
+  ): Promise<string> {
+    return this.request("PUT", path, body, {
+      "Content-Type": "text/calendar; charset=utf-8",
+      ...extraHeaders,
+    });
+  }
+
   private async request(
     method: string,
     path: string,
@@ -65,7 +76,7 @@ export class WebDavClient {
       Authorization: this.authHeader(),
       ...extraHeaders,
     };
-    if (body) {
+    if (body && !headers["Content-Type"]) {
       headers["Content-Type"] = "application/xml; charset=utf-8";
     }
 

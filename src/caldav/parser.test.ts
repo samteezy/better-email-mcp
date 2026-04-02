@@ -1,4 +1,14 @@
-import { parseICalendar, icalDateToISO, ParsedVEvent } from "../caldav/parser";
+import {
+  parseICalendar,
+  parseVTodos,
+  serializeVTodo,
+  icalDateToISO,
+  isoToICalDate,
+  escapeText,
+  unescapeText,
+  ParsedVEvent,
+  ParsedVTodo,
+} from "../caldav/parser";
 
 // ---------------------------------------------------------------------------
 // Helper to build a minimal VCALENDAR wrapper around VEVENT lines
@@ -386,5 +396,189 @@ describe("edge cases", () => {
 
     const [e] = parseICalendar(ical);
     expect(e.status).toBe("CONFIRMED");
+  });
+});
+
+// ===========================================================================
+// VTODO parsing
+// ===========================================================================
+
+function wrapVTodo(...todoBodies: string[]): string {
+  const todos = todoBodies
+    .map((body) => `BEGIN:VTODO\r\n${body}\r\nEND:VTODO`)
+    .join("\r\n");
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//Test//EN\r\n${todos}\r\nEND:VCALENDAR`;
+}
+
+describe("VTODO parsing", () => {
+  it("parses basic VTODO with all fields", () => {
+    const ical = wrapVTodo(
+      [
+        "UID:todo-1",
+        "SUMMARY:Buy groceries",
+        "DUE:20250420T170000Z",
+        "DTSTART:20250418T090000Z",
+        "STATUS:NEEDS-ACTION",
+        "PRIORITY:1",
+        "PERCENT-COMPLETE:25",
+        "DESCRIPTION:Milk\\, eggs\\, bread",
+        "CATEGORIES:Shopping,Personal",
+        "RRULE:FREQ=WEEKLY",
+      ].join("\r\n"),
+    );
+
+    const todos = parseVTodos(ical);
+    expect(todos).toHaveLength(1);
+
+    const t = todos[0];
+    expect(t.uid).toBe("todo-1");
+    expect(t.summary).toBe("Buy groceries");
+    expect(t.due).toBe("2025-04-20T17:00:00Z");
+    expect(t.dtstart).toBe("2025-04-18T09:00:00Z");
+    expect(t.status).toBe("NEEDS-ACTION");
+    expect(t.priority).toBe(1);
+    expect(t.percentComplete).toBe(25);
+    expect(t.description).toBe("Milk, eggs, bread");
+    expect(t.categories).toEqual(["Shopping", "Personal"]);
+    expect(t.rrule).toBe("FREQ=WEEKLY");
+  });
+
+  it("parses completed VTODO", () => {
+    const ical = wrapVTodo(
+      [
+        "UID:todo-2",
+        "SUMMARY:File taxes",
+        "STATUS:COMPLETED",
+        "COMPLETED:20250415T120000Z",
+        "PERCENT-COMPLETE:100",
+      ].join("\r\n"),
+    );
+
+    const [t] = parseVTodos(ical);
+    expect(t.status).toBe("COMPLETED");
+    expect(t.completed).toBe("2025-04-15T12:00:00Z");
+    expect(t.percentComplete).toBe(100);
+  });
+
+  it("parses minimal VTODO", () => {
+    const ical = wrapVTodo(
+      ["UID:todo-3", "SUMMARY:Quick note"].join("\r\n"),
+    );
+
+    const [t] = parseVTodos(ical);
+    expect(t.uid).toBe("todo-3");
+    expect(t.summary).toBe("Quick note");
+    expect(t.due).toBeUndefined();
+    expect(t.dtstart).toBeUndefined();
+    expect(t.status).toBeUndefined();
+    expect(t.priority).toBeUndefined();
+    expect(t.categories).toBeUndefined();
+  });
+
+  it("parses multiple VTODOs", () => {
+    const ical = wrapVTodo(
+      ["UID:t1", "SUMMARY:First"].join("\r\n"),
+      ["UID:t2", "SUMMARY:Second"].join("\r\n"),
+    );
+
+    const todos = parseVTodos(ical);
+    expect(todos).toHaveLength(2);
+    expect(todos[0].summary).toBe("First");
+    expect(todos[1].summary).toBe("Second");
+  });
+
+  it("does not return VEVENTs", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:evt-1",
+      "SUMMARY:An event",
+      "DTSTART:20250415T100000Z",
+      "END:VEVENT",
+      "BEGIN:VTODO",
+      "UID:todo-1",
+      "SUMMARY:A task",
+      "END:VTODO",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const todos = parseVTodos(ical);
+    expect(todos).toHaveLength(1);
+    expect(todos[0].summary).toBe("A task");
+
+    // And parseICalendar should still only return events
+    const events = parseICalendar(ical);
+    expect(events).toHaveLength(1);
+    expect(events[0].summary).toBe("An event");
+  });
+});
+
+// ===========================================================================
+// escapeText / isoToICalDate
+// ===========================================================================
+
+describe("escapeText", () => {
+  it("escapes special characters", () => {
+    expect(escapeText("Hello, world; test\\end\nnewline")).toBe(
+      "Hello\\, world\\; test\\\\end\\nnewline",
+    );
+  });
+});
+
+describe("isoToICalDate", () => {
+  it("converts date-only", () => {
+    expect(isoToICalDate("2025-04-15")).toBe("20250415");
+  });
+
+  it("converts datetime with Z", () => {
+    expect(isoToICalDate("2025-04-15T14:30:00Z")).toBe("20250415T143000Z");
+  });
+
+  it("converts datetime without Z", () => {
+    expect(isoToICalDate("2025-04-15T14:30:00")).toBe("20250415T143000");
+  });
+
+  it("strips timezone bracket suffix", () => {
+    expect(isoToICalDate("2025-04-15T14:30:00 [America/New_York]")).toBe(
+      "20250415T143000",
+    );
+  });
+});
+
+// ===========================================================================
+// serializeVTodo round-trip
+// ===========================================================================
+
+describe("serializeVTodo", () => {
+  it("produces parseable iCalendar output", () => {
+    const ical = serializeVTodo(
+      {
+        title: "Test task",
+        description: "Line one\nLine two",
+        due: "2025-04-20T17:00:00Z",
+        priority: 3,
+        status: "NEEDS-ACTION",
+        categories: ["Work", "Urgent"],
+      },
+      "fixed-uid-123",
+    );
+
+    const todos = parseVTodos(ical);
+    expect(todos).toHaveLength(1);
+
+    const t = todos[0];
+    expect(t.uid).toBe("fixed-uid-123");
+    expect(t.summary).toBe("Test task");
+    expect(t.description).toBe("Line one\nLine two");
+    expect(t.due).toBe("2025-04-20T17:00:00Z");
+    expect(t.priority).toBe(3);
+    expect(t.status).toBe("NEEDS-ACTION");
+    expect(t.categories).toEqual(["Work", "Urgent"]);
+  });
+
+  it("generates a UID when none provided", () => {
+    const ical = serializeVTodo({ title: "Auto UID" });
+    const [t] = parseVTodos(ical);
+    expect(t.uid).toMatch(/@better-email-mcp$/);
   });
 });

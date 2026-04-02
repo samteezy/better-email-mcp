@@ -1,7 +1,20 @@
-import { CalendarBackend, CalendarInfo, CalendarEvent, ListEventsOptions, SearchEventsOptions } from "../types.js";
+import {
+  CalendarBackend,
+  CalendarInfo,
+  CalendarEvent,
+  ListEventsOptions,
+  SearchEventsOptions,
+  TaskBackend,
+  TaskInfo,
+  ListTasksOptions,
+  SearchTasksOptions,
+  CreateTaskOptions,
+  UpdateTaskOptions,
+} from "../types.js";
 import { WebDavClient } from "../webdav/client.js";
 import { hasElement, extractText } from "../webdav/xml.js";
-import { parseICalendar, ParsedVEvent } from "./parser.js";
+import { parseICalendar, parseVTodos, serializeVTodo, ParsedVEvent, ParsedVTodo } from "./parser.js";
+import { randomUUID } from "node:crypto";
 
 export interface CalDavConfig {
   url: string;
@@ -30,6 +43,7 @@ const PROPFIND_CALENDARS = `<?xml version="1.0" encoding="UTF-8"?>
     <d:displayname/>
     <ic:calendar-color/>
     <c:calendar-description/>
+    <c:supported-calendar-component-set/>
   </d:prop>
 </d:propfind>`;
 
@@ -46,7 +60,20 @@ const REPORT_EVENTS = `<?xml version="1.0" encoding="UTF-8"?>
   </c:filter>
 </c:calendar-query>`;
 
-export class CalDavBackend implements CalendarBackend {
+const REPORT_TODOS = `<?xml version="1.0" encoding="UTF-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:getetag/>
+    <c:calendar-data/>
+  </d:prop>
+  <c:filter>
+    <c:comp-filter name="VCALENDAR">
+      <c:comp-filter name="VTODO"/>
+    </c:comp-filter>
+  </c:filter>
+</c:calendar-query>`;
+
+export class CalDavBackend implements CalendarBackend, TaskBackend {
   private client: WebDavClient;
   private config: CalDavConfig;
   private calendars: CalendarInfo[] = [];
@@ -128,11 +155,27 @@ export class CalDavBackend implements CalendarBackend {
       const color = entry.props.get("calendar-color") || undefined;
       const description = entry.props.get("calendar-description") || undefined;
 
+      // Parse supported-calendar-component-set: <comp name="VEVENT"/> <comp name="VTODO"/>
+      let supportedComponents: string[] | undefined;
+      const compSetXml = entry.props.get("supported-calendar-component-set");
+      if (compSetXml) {
+        const compNames: string[] = [];
+        const compRe = /name="([^"]+)"/gi;
+        let m;
+        while ((m = compRe.exec(compSetXml)) !== null) {
+          compNames.push(m[1].toUpperCase());
+        }
+        if (compNames.length > 0) {
+          supportedComponents = compNames;
+        }
+      }
+
       this.calendars.push({
         href: entry.href,
         name,
         color,
         description,
+        supportedComponents,
       });
     }
   }
@@ -208,6 +251,224 @@ export class CalDavBackend implements CalendarBackend {
     });
 
     return matched.slice(0, limit);
+  }
+
+  // --- Task methods ---
+
+  async listTasks(options?: ListTasksOptions): Promise<TaskInfo[]> {
+    const limit = options?.limit ?? 50;
+    const calendarFilter = options?.calendar;
+    const statusFilter = options?.status;
+
+    const targetCalendars = this.getTaskCalendars(calendarFilter);
+    const allTasks: TaskInfo[] = [];
+
+    for (const cal of targetCalendars) {
+      const entries = await this.client.report(cal.href, REPORT_TODOS);
+
+      for (const entry of entries) {
+        const icalData = entry.props.get("calendar-data");
+        if (!icalData) continue;
+
+        const vtodos = parseVTodos(icalData);
+        for (const vtodo of vtodos) {
+          allTasks.push(this.mapTask(vtodo, entry.href, cal.name));
+        }
+      }
+    }
+
+    // Filter by status
+    const filtered = statusFilter
+      ? allTasks.filter((t) => t.status === statusFilter)
+      : allTasks;
+
+    // Sort by due date ascending (nulls last)
+    filtered.sort((a, b) => {
+      if (!a.due && !b.due) return 0;
+      if (!a.due) return 1;
+      if (!b.due) return -1;
+      return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+    });
+
+    return filtered.slice(0, limit);
+  }
+
+  async getTask(href: string): Promise<TaskInfo | null> {
+    let icalData: string;
+    try {
+      icalData = await this.client.get(href);
+    } catch {
+      return null;
+    }
+
+    const vtodos = parseVTodos(icalData);
+    if (vtodos.length === 0) return null;
+
+    const calendarName = this.inferCalendarName(href);
+    return this.mapTask(vtodos[0], href, calendarName);
+  }
+
+  async searchTasks(options: SearchTasksOptions): Promise<TaskInfo[]> {
+    const limit = options.limit ?? 50;
+    const query = options.query.toLowerCase();
+
+    const tasks = await this.listTasks({
+      calendar: options.calendar,
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+
+    const matched = tasks.filter((t) => {
+      const fields = [
+        t.title,
+        t.description,
+        ...(t.categories || []),
+      ];
+      return fields.some((f) => f && f.toLowerCase().includes(query));
+    });
+
+    return matched.slice(0, limit);
+  }
+
+  async createTask(options: CreateTaskOptions): Promise<TaskInfo> {
+    const targetCalendars = this.getTaskCalendars(options.calendar);
+    if (targetCalendars.length === 0) {
+      throw new Error(
+        options.calendar
+          ? `No task-capable calendar found matching "${options.calendar}"`
+          : "No task-capable calendars found",
+      );
+    }
+
+    const cal = targetCalendars[0];
+    const uid = `${randomUUID()}@better-email-mcp`;
+    const href = `${cal.href.replace(/\/$/, "")}/${randomUUID()}.ics`;
+
+    const ical = serializeVTodo(
+      {
+        title: options.title,
+        description: options.description,
+        due: options.due,
+        priority: options.priority,
+        categories: options.categories,
+        status: options.status || "NEEDS-ACTION",
+      },
+      uid,
+    );
+
+    await this.client.put(href, ical, { "If-None-Match": "*" });
+
+    // Fetch back the created task
+    const task = await this.getTask(href);
+    if (!task) {
+      // Fallback: return from what we know
+      return this.mapTask(
+        { uid, summary: options.title, status: options.status || "NEEDS-ACTION", due: options.due, priority: options.priority, description: options.description, categories: options.categories },
+        href,
+        cal.name,
+      );
+    }
+    return task;
+  }
+
+  async updateTask(options: UpdateTaskOptions): Promise<TaskInfo> {
+    // Fetch existing
+    const icalData = await this.client.get(options.href);
+    const vtodos = parseVTodos(icalData);
+    if (vtodos.length === 0) {
+      throw new Error(`No VTODO found at ${options.href}`);
+    }
+
+    const existing = vtodos[0];
+
+    const ical = serializeVTodo(
+      {
+        title: options.title ?? existing.summary,
+        description: options.description !== undefined ? options.description : existing.description,
+        due: options.due !== undefined ? options.due : existing.due,
+        start: existing.dtstart,
+        priority: options.priority !== undefined ? options.priority : existing.priority,
+        categories: options.categories !== undefined ? options.categories : existing.categories,
+        status: options.status ?? existing.status,
+        percentComplete: options.percentComplete !== undefined ? options.percentComplete : existing.percentComplete,
+        completed: existing.completed,
+      },
+      existing.uid,
+    );
+
+    await this.client.put(options.href, ical, { "If-Match": "*" });
+
+    const task = await this.getTask(options.href);
+    if (!task) {
+      throw new Error(`Failed to fetch updated task at ${options.href}`);
+    }
+    return task;
+  }
+
+  async completeTask(href: string): Promise<TaskInfo> {
+    const icalData = await this.client.get(href);
+    const vtodos = parseVTodos(icalData);
+    if (vtodos.length === 0) {
+      throw new Error(`No VTODO found at ${href}`);
+    }
+
+    const existing = vtodos[0];
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+
+    const ical = serializeVTodo(
+      {
+        title: existing.summary,
+        description: existing.description,
+        due: existing.due,
+        start: existing.dtstart,
+        priority: existing.priority,
+        categories: existing.categories,
+        status: "COMPLETED",
+        percentComplete: 100,
+        completed: now,
+      },
+      existing.uid,
+    );
+
+    await this.client.put(href, ical, { "If-Match": "*" });
+
+    const task = await this.getTask(href);
+    if (!task) {
+      throw new Error(`Failed to fetch completed task at ${href}`);
+    }
+    return task;
+  }
+
+  private mapTask(vtodo: ParsedVTodo, href: string, calendar: string): TaskInfo {
+    return {
+      id: vtodo.uid,
+      href,
+      calendar,
+      title: vtodo.summary,
+      ...(vtodo.status !== undefined && { status: vtodo.status }),
+      ...(vtodo.priority !== undefined && { priority: vtodo.priority }),
+      ...(vtodo.due !== undefined && { due: vtodo.due }),
+      ...(vtodo.dtstart !== undefined && { start: vtodo.dtstart }),
+      ...(vtodo.completed !== undefined && { completed: vtodo.completed }),
+      ...(vtodo.percentComplete !== undefined && { percentComplete: vtodo.percentComplete }),
+      ...(vtodo.description !== undefined && { description: vtodo.description }),
+      ...(vtodo.categories !== undefined && { categories: vtodo.categories }),
+      ...(vtodo.rrule !== undefined && { recurrence: vtodo.rrule }),
+    };
+  }
+
+  private getTaskCalendars(calendarFilter?: string): CalendarInfo[] {
+    const calendars = this.calendars.filter((c) => {
+      // If supportedComponents is set, check for VTODO; otherwise assume supported
+      if (c.supportedComponents) {
+        return c.supportedComponents.includes("VTODO");
+      }
+      return true;
+    });
+
+    if (calendarFilter) {
+      return calendars.filter((c) => c.name === calendarFilter);
+    }
+    return calendars;
   }
 
   private mapEvent(vevent: ParsedVEvent, href: string, calendar: string): CalendarEvent {

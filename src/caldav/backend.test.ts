@@ -395,4 +395,305 @@ describe("CalDavBackend", () => {
       expect(byOrganizer[0].title).toBe("Team Standup");
     });
   });
+
+  // --- Task methods ---
+
+  const ICAL_TODO_GROCERIES = `BEGIN:VCALENDAR
+BEGIN:VTODO
+UID:todo-1@example.com
+SUMMARY:Buy groceries
+DUE:20250420T170000Z
+STATUS:NEEDS-ACTION
+PRIORITY:1
+CATEGORIES:Shopping,Personal
+END:VTODO
+END:VCALENDAR`;
+
+  const ICAL_TODO_TAXES = `BEGIN:VCALENDAR
+BEGIN:VTODO
+UID:todo-2@example.com
+SUMMARY:File taxes
+DUE:20250415T120000Z
+STATUS:COMPLETED
+COMPLETED:20250414T180000Z
+PERCENT-COMPLETE:100
+END:VTODO
+END:VCALENDAR`;
+
+  describe("listTasks()", () => {
+    it("fetches and parses VTODOs from all calendars", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      mockClient.report.mockResolvedValueOnce([
+        entry("/calendars/user/personal/todo1.ics", {
+          getetag: '"etag1"',
+          "calendar-data": ICAL_TODO_GROCERIES,
+        }),
+      ]);
+      mockClient.report.mockResolvedValueOnce([
+        entry("/calendars/user/work/todo2.ics", {
+          getetag: '"etag2"',
+          "calendar-data": ICAL_TODO_TAXES,
+        }),
+      ]);
+
+      const tasks = await backend.listTasks();
+
+      expect(tasks).toHaveLength(2);
+      // Sorted by due ascending: taxes (Apr 15) before groceries (Apr 20)
+      expect(tasks[0].title).toBe("File taxes");
+      expect(tasks[0].id).toBe("todo-2@example.com");
+      expect(tasks[0].status).toBe("COMPLETED");
+      expect(tasks[0].calendar).toBe("Work");
+
+      expect(tasks[1].title).toBe("Buy groceries");
+      expect(tasks[1].priority).toBe(1);
+      expect(tasks[1].categories).toEqual(["Shopping", "Personal"]);
+    });
+
+    it("filters by status", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      mockClient.report.mockResolvedValueOnce([
+        entry("/calendars/user/personal/todo1.ics", {
+          getetag: '"etag1"',
+          "calendar-data": ICAL_TODO_GROCERIES,
+        }),
+      ]);
+      mockClient.report.mockResolvedValueOnce([
+        entry("/calendars/user/work/todo2.ics", {
+          getetag: '"etag2"',
+          "calendar-data": ICAL_TODO_TAXES,
+        }),
+      ]);
+
+      const tasks = await backend.listTasks({ status: "NEEDS-ACTION" });
+
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].title).toBe("Buy groceries");
+    });
+  });
+
+  describe("getTask()", () => {
+    it("fetches and parses a single task", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      mockClient.get.mockResolvedValueOnce(ICAL_TODO_GROCERIES);
+
+      const task = await backend.getTask("/calendars/user/personal/todo1.ics");
+
+      expect(task).not.toBeNull();
+      expect(task!.id).toBe("todo-1@example.com");
+      expect(task!.title).toBe("Buy groceries");
+      expect(task!.due).toBe("2025-04-20T17:00:00Z");
+      expect(task!.status).toBe("NEEDS-ACTION");
+      expect(task!.calendar).toBe("Personal");
+    });
+
+    it("returns null for missing task", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      mockClient.get.mockRejectedValueOnce(new Error("404"));
+
+      const task = await backend.getTask("/calendars/user/personal/nope.ics");
+      expect(task).toBeNull();
+    });
+  });
+
+  describe("searchTasks()", () => {
+    it("filters tasks by query text", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      mockClient.report.mockResolvedValueOnce([
+        entry("/calendars/user/personal/todo1.ics", {
+          getetag: '"etag1"',
+          "calendar-data": ICAL_TODO_GROCERIES,
+        }),
+        entry("/calendars/user/personal/todo2.ics", {
+          getetag: '"etag2"',
+          "calendar-data": ICAL_TODO_TAXES,
+        }),
+      ]);
+      mockClient.report.mockResolvedValueOnce([]);
+
+      const results = await backend.searchTasks({ query: "groceries" });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].title).toBe("Buy groceries");
+    });
+
+    it("matches on categories", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      mockClient.report.mockResolvedValueOnce([
+        entry("/calendars/user/personal/todo1.ics", {
+          getetag: '"etag1"',
+          "calendar-data": ICAL_TODO_GROCERIES,
+        }),
+      ]);
+      mockClient.report.mockResolvedValueOnce([]);
+
+      const results = await backend.searchTasks({ query: "shopping" });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].title).toBe("Buy groceries");
+    });
+  });
+
+  describe("createTask()", () => {
+    it("PUTs a new VTODO and returns the task", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      mockClient.put = jest.fn().mockResolvedValue("");
+      mockClient.get.mockResolvedValueOnce(ICAL_TODO_GROCERIES);
+
+      const task = await backend.createTask({
+        title: "Buy groceries",
+        due: "2025-04-20T17:00:00Z",
+        priority: 1,
+      });
+
+      expect(mockClient.put).toHaveBeenCalledTimes(1);
+      const putArgs = (mockClient.put as jest.Mock).mock.calls[0];
+      expect(putArgs[0]).toMatch(/\.ics$/);
+      expect(putArgs[1]).toContain("BEGIN:VTODO");
+      expect(putArgs[1]).toContain("SUMMARY:Buy groceries");
+      expect(putArgs[2]).toEqual({ "If-None-Match": "*" });
+
+      expect(task.title).toBe("Buy groceries");
+    });
+  });
+
+  describe("updateTask()", () => {
+    it("GETs existing, PUTs modified version", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      // GET existing
+      mockClient.get.mockResolvedValueOnce(ICAL_TODO_GROCERIES);
+      // PUT updated
+      mockClient.put = jest.fn().mockResolvedValue("");
+      // GET back
+      mockClient.get.mockResolvedValueOnce(
+        ICAL_TODO_GROCERIES.replace("NEEDS-ACTION", "IN-PROCESS"),
+      );
+
+      const task = await backend.updateTask({
+        href: "/calendars/user/personal/todo1.ics",
+        status: "IN-PROCESS",
+      });
+
+      expect(mockClient.put).toHaveBeenCalledTimes(1);
+      const putArgs = (mockClient.put as jest.Mock).mock.calls[0];
+      expect(putArgs[1]).toContain("STATUS:IN-PROCESS");
+      expect(putArgs[2]).toEqual({ "If-Match": "*" });
+
+      expect(task.status).toBe("IN-PROCESS");
+    });
+  });
+
+  describe("completeTask()", () => {
+    it("marks task as completed", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      // GET existing
+      mockClient.get.mockResolvedValueOnce(ICAL_TODO_GROCERIES);
+      // PUT completed
+      mockClient.put = jest.fn().mockResolvedValue("");
+      // GET back
+      mockClient.get.mockResolvedValueOnce(
+        ICAL_TODO_GROCERIES
+          .replace("NEEDS-ACTION", "COMPLETED")
+          + "\nPERCENT-COMPLETE:100\nCOMPLETED:20250415T120000Z",
+      );
+
+      const task = await backend.completeTask("/calendars/user/personal/todo1.ics");
+
+      expect(mockClient.put).toHaveBeenCalledTimes(1);
+      const putArgs = (mockClient.put as jest.Mock).mock.calls[0];
+      expect(putArgs[1]).toContain("STATUS:COMPLETED");
+      expect(putArgs[1]).toContain("PERCENT-COMPLETE:100");
+      expect(putArgs[1]).toContain("COMPLETED:");
+    });
+  });
+
+  describe("supported-calendar-component-set", () => {
+    it("parses component types from discovery", async () => {
+      const { backend, mockClient } = createBackend();
+
+      // Step 1: principal
+      mockClient.propfind.mockResolvedValueOnce([
+        entry("https://caldav.example.com/dav", {
+          "current-user-principal": '<d:href>/principals/user</d:href>',
+        }),
+      ]);
+
+      // Step 2: calendar-home-set
+      mockClient.propfind.mockResolvedValueOnce([
+        entry("/principals/user", {
+          "calendar-home-set": '<d:href>/calendars/user/</d:href>',
+        }),
+      ]);
+
+      // Step 3: calendars with component-set
+      mockClient.propfind.mockResolvedValueOnce([
+        entry("/calendars/user/events/", {
+          resourcetype: '<d:collection/><c:calendar/>',
+          displayname: "Events Only",
+          "supported-calendar-component-set": '<c:comp name="VEVENT"/>',
+        }),
+        entry("/calendars/user/tasks/", {
+          resourcetype: '<d:collection/><c:calendar/>',
+          displayname: "Tasks Only",
+          "supported-calendar-component-set": '<c:comp name="VTODO"/>',
+        }),
+        entry("/calendars/user/both/", {
+          resourcetype: '<d:collection/><c:calendar/>',
+          displayname: "Both",
+          "supported-calendar-component-set": '<c:comp name="VEVENT"/><c:comp name="VTODO"/>',
+        }),
+      ]);
+
+      await backend.connect();
+
+      const calendars = await backend.listCalendars();
+      expect(calendars).toHaveLength(3);
+      expect(calendars[0].supportedComponents).toEqual(["VEVENT"]);
+      expect(calendars[1].supportedComponents).toEqual(["VTODO"]);
+      expect(calendars[2].supportedComponents).toEqual(["VEVENT", "VTODO"]);
+
+      // listTasks should only query task-capable calendars
+      mockClient.report.mockResolvedValueOnce([]); // Tasks Only
+      mockClient.report.mockResolvedValueOnce([]); // Both
+
+      await backend.listTasks();
+
+      expect(mockClient.report).toHaveBeenCalledTimes(2);
+      expect(mockClient.report).toHaveBeenCalledWith(
+        "/calendars/user/tasks/",
+        expect.stringContaining("VTODO"),
+      );
+      expect(mockClient.report).toHaveBeenCalledWith(
+        "/calendars/user/both/",
+        expect.stringContaining("VTODO"),
+      );
+    });
+  });
 });
