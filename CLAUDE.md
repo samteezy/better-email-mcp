@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`better-email-mcp` is an MCP server that gives LLMs access to email, calendar, and contacts. See **[README.md](README.md)** for the authoritative reference on supported backends, configuration, available tools, and usage examples. Keep the README updated when adding or changing user-facing behavior.
+`better-email-mcp` is an MCP server that gives LLMs access to email, calendar, tasks, and contacts. See **[README.md](README.md)** for the authoritative reference on supported backends, configuration, available tools, and usage examples. Keep the README updated when adding or changing user-facing behavior.
 
 High-level capabilities:
 
 - **Email** — IMAP/SMTP (any provider) or Fastmail JMAP
 - **Calendar** — CalDAV (Fastmail, iCloud, Nextcloud, Radicale, etc.)
+- **Tasks** — CalDAV VTODO (same providers as calendar)
 - **Contacts** — CardDAV (same providers)
 
-CalDAV and CardDAV activate alongside whichever email backend is configured — it's one server instance with all protocols combined.
+CalDAV, CardDAV, and tasks activate alongside whichever email backend is configured — it's one server instance with all protocols combined.
 
 ## Tech Stack
 
@@ -55,3 +56,11 @@ Entry point is `src/index.ts` — creates the `McpServer`, registers tools, and 
 - **Credentials via environment**: never bake credentials into config files committed to the repo. See README for the full env var reference.
 - **Zero/minimal dependencies**: implement protocol clients from scratch using Node built-ins (`net`/`tls`) to minimize supply chain attack surface. Avoid adding npm packages when the functionality can be implemented with reasonable effort.
 - **User-disablable tools**: `DISABLED_TOOLS` env var prevents specific tools from being registered. See README for details.
+
+## Versioning
+
+Version lives in two places — `package.json` and the `McpServer` constructor in `src/index.ts`. Both must be updated together.
+
+- **Minor bump** (0.4.0 → 0.5.0): new features, new tools, new capabilities.
+- **Patch bump** (0.4.0 → 0.4.1): bug fixes, refactors, documentation-only changes.
+- If unclear whether a change is a feature or a fix, ask the user before bumping.
