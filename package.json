@@ -4,6 +4,9 @@
   "description": "MCP server for email access via IMAP and Fastmail JMAP",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "better-email-mcp": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
