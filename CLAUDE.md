@@ -4,12 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`better-email-mcp` is a Model Context Protocol (MCP) server that exposes email access to LLM tools (e.g. Claude). It supports two backends:
+`better-email-mcp` is an MCP server that gives LLMs access to email, calendar, and contacts. See **[README.md](README.md)** for the authoritative reference on supported backends, configuration, available tools, and usage examples. Keep the README updated when adding or changing user-facing behavior.
 
-- **IMAP** — generic email access for any IMAP-compatible provider
-- **JMAP** — Fastmail's native JMAP API for richer, more efficient access
+High-level capabilities:
 
-The goal is a well-designed, opinionated MCP server that goes beyond existing solutions — prioritizing good tool ergonomics for LLMs, not just raw protocol exposure.
+- **Email** — IMAP/SMTP (any provider) or Fastmail JMAP
+- **Calendar** — CalDAV (Fastmail, iCloud, Nextcloud, Radicale, etc.)
+- **Contacts** — CardDAV (same providers)
+
+CalDAV and CardDAV activate alongside whichever email backend is configured — it's one server instance with all protocols combined.
 
 ## Tech Stack
 
@@ -35,22 +38,20 @@ The goal is a well-designed, opinionated MCP server that goes beyond existing so
 
 ## Architecture
 
-The server is organized around two layers:
+Entry point is `src/index.ts` — creates the `McpServer`, registers tools, and connects via stdio transport.
 
-1. **Backend adapters** (`src/backends/`) — IMAP and JMAP backends, each implementing the `EmailBackend` interface defined in `src/types.ts`, so the MCP tool layer is backend-agnostic.
+1. **Email backend adapters** (`src/backends/`) — IMAP and JMAP backends, each implementing the `EmailBackend` interface defined in `src/types.ts`, so the MCP tool layer is backend-agnostic. Backend is selected at startup via `EMAIL_BACKEND` env var.
 
-2. **IMAP client** (`src/imap/`) — zero-dependency IMAP implementation using Node's built-in `net`/`tls` modules. `parser.ts` handles IMAP response parsing (parenthesized lists, envelopes, RFC 2047 decoding). `client.ts` manages the TCP/TLS connection with tagged command/response handling and literal string support.
+2. **IMAP client** (`src/imap/`) — zero-dependency IMAP implementation using Node's built-in `net`/`tls` modules. `parser.ts` handles IMAP response parsing (parenthesized lists, envelopes, RFC 2047 decoding). `client.ts` manages the TCP/TLS connection with tagged command/response handling and literal string support. IMAP message IDs use composite `folder:uid` format (e.g. `INBOX:4523`) since UIDs are only unique within a mailbox. Sending requires SMTP configuration (IMAP itself is read-only).
 
-3. **MCP tool layer** (`src/tools/`) — registers MCP tools (e.g. `list_messages`, `get_message`, `search`) that delegate to whichever backend is configured. Tool inputs and outputs are designed for LLM usability: concise, structured, and avoiding raw MIME blobs where possible.
+3. **CalDAV / CardDAV clients** — calendar and contact access, activated when their respective env vars are set. Work alongside any email backend in a single server instance.
 
-Entry point is `src/index.ts` — creates the `McpServer`, registers tools, and connects via stdio transport. Backend is selected at startup via `EMAIL_BACKEND` env var (`"jmap"` default, or `"imap"`).
-
-**IMAP message IDs** use composite `folder:uid` format (e.g. `INBOX:4523`) since IMAP UIDs are only unique within a mailbox. The IMAP backend does not implement `sendMessage` (IMAP is read-only; SMTP would be needed for sending).
+4. **MCP tool layer** (`src/tools/`) — registers MCP tools that delegate to the configured backends. Tool inputs and outputs are designed for LLM usability: concise, structured, and avoiding raw protocol output where possible.
 
 ## Key Design Principles
 
-- **LLM-first tool design**: tool schemas and return values should be easy for a model to reason about. Prefer structured fields (sender, subject, date, snippet) over raw RFC 2822 output.
-- **Single backend per server instance**: don't try to multiplex IMAP and JMAP in one running server. Run two instances if needed.
-- **Credentials via environment**: `IMAP_HOST`, `IMAP_USER`, `IMAP_PASSWORD`, `JMAP_TOKEN`, etc. Never bake credentials into config files committed to the repo.
-- **Zero/minimal dependencies**: the IMAP client is implemented from scratch using Node built-ins (`net`/`tls`) to minimize supply chain attack surface. Avoid adding npm packages when the functionality can be implemented with reasonable effort.
-- **User-disablable tools**: users can set `DISABLED_TOOLS=send_message,search_messages` to prevent specific tools from being registered. This reduces context pollution for LLMs and lets operators enforce read-only or least-privilege access. Parsed once at startup, comma-separated, case-insensitive.
+- **LLM-first tool design**: tool schemas and return values should be easy for a model to reason about. Prefer structured fields over raw protocol output.
+- **Single email backend per instance**: don't multiplex IMAP and JMAP in one running server. CalDAV and CardDAV do run alongside the email backend in the same instance.
+- **Credentials via environment**: never bake credentials into config files committed to the repo. See README for the full env var reference.
+- **Zero/minimal dependencies**: implement protocol clients from scratch using Node built-ins (`net`/`tls`) to minimize supply chain attack surface. Avoid adding npm packages when the functionality can be implemented with reasonable effort.
+- **User-disablable tools**: `DISABLED_TOOLS` env var prevents specific tools from being registered. See README for details.
