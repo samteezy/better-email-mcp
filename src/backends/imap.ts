@@ -225,16 +225,24 @@ export class ImapBackend implements EmailBackend {
     const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@${domain}>`;
     const date = new Date().toUTCString();
 
+    const sanitizedTo = options.to.map((a) => this.sanitizeHeader(a));
+    const sanitizedCc = options.cc?.map((a) => this.sanitizeHeader(a));
+    const sanitizedSubject = this.sanitizeHeader(options.subject);
+
     let message = "";
     message += `From: ${from}\r\n`;
-    message += `To: ${options.to.join(", ")}\r\n`;
-    message += `Subject: ${options.subject}\r\n`;
+    message += `To: ${sanitizedTo.join(", ")}\r\n`;
+    if (sanitizedCc && sanitizedCc.length > 0) {
+      message += `Cc: ${sanitizedCc.join(", ")}\r\n`;
+    }
+    message += `Subject: ${sanitizedSubject}\r\n`;
     message += `Date: ${date}\r\n`;
     message += `Message-ID: ${messageId}\r\n`;
     message += `MIME-Version: 1.0\r\n`;
     if (options.inReplyTo) {
-      message += `In-Reply-To: ${options.inReplyTo}\r\n`;
-      message += `References: ${options.inReplyTo}\r\n`;
+      const sanitizedReplyTo = this.sanitizeHeader(options.inReplyTo);
+      message += `In-Reply-To: ${sanitizedReplyTo}\r\n`;
+      message += `References: ${sanitizedReplyTo}\r\n`;
     }
 
     if (options.htmlBody) {
@@ -257,7 +265,12 @@ export class ImapBackend implements EmailBackend {
     }
 
     await this.smtpClient.mailFrom(from);
-    for (const recipient of options.to) {
+    const allRecipients = [
+      ...options.to,
+      ...(options.cc ?? []),
+      ...(options.bcc ?? []),
+    ];
+    for (const recipient of allRecipients) {
       await this.smtpClient.rcptTo(recipient);
     }
     await this.smtpClient.data(message);
@@ -266,6 +279,13 @@ export class ImapBackend implements EmailBackend {
   }
 
   // --- Private helpers ---
+
+  private sanitizeHeader(value: string): string {
+    if (/[\r\n]/.test(value)) {
+      throw new Error("Header value must not contain CR or LF");
+    }
+    return value;
+  }
 
   private ensureConnected(): ImapClient {
     if (!this.client) {

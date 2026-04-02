@@ -22,6 +22,15 @@ export class SmtpError extends Error {
   }
 }
 
+function validateAddress(address: string): void {
+  if (/[\r\n\x00<>]/.test(address)) {
+    throw new SmtpError(
+      "invalid_address",
+      "Email address contains illegal characters"
+    );
+  }
+}
+
 interface SmtpResponse {
   code: number;
   lines: string[];
@@ -135,10 +144,12 @@ export class SmtpClient {
   }
 
   async mailFrom(address: string): Promise<void> {
+    validateAddress(address);
     await this.sendCommand(`MAIL FROM:<${address}>`, [250]);
   }
 
   async rcptTo(address: string): Promise<void> {
+    validateAddress(address);
     await this.sendCommand(`RCPT TO:<${address}>`, [250]);
   }
 

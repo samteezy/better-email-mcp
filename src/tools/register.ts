@@ -146,6 +146,8 @@ export function registerEmailTools(
 
     const sendParams: Record<string, z.ZodType> = {
       to: z.array(z.string()).describe("Recipient email addresses"),
+      cc: z.array(z.string()).optional().describe("CC recipient email addresses"),
+      bcc: z.array(z.string()).optional().describe("BCC recipient email addresses"),
       subject: z.string().describe("Email subject"),
       textBody: z.string().describe("Plain text body of the email"),
       inReplyTo: z
@@ -168,6 +170,8 @@ export function registerEmailTools(
         try {
           const result = await sendFn({
             to: args.to as string[],
+            cc: args.cc as string[] | undefined,
+            bcc: args.bcc as string[] | undefined,
             subject: args.subject as string,
             textBody: args.textBody as string,
             htmlBody: args.htmlBody as string | undefined,

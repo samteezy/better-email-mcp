@@ -30,6 +30,8 @@ export interface SearchOptions {
 
 export interface SendMessageOptions {
   to: string[];
+  cc?: string[];
+  bcc?: string[];
   subject: string;
   textBody: string;
   htmlBody?: string;

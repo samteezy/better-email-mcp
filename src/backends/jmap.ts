@@ -297,6 +297,12 @@ export class JmapBackend implements EmailBackend {
       mailboxIds: { [draftsId]: true },
       from: [{ name: this.identity.name, email: this.identity.email }],
       to: options.to.map((email) => ({ email })),
+      ...(options.cc?.length
+        ? { cc: options.cc.map((email) => ({ email })) }
+        : {}),
+      ...(options.bcc?.length
+        ? { bcc: options.bcc.map((email) => ({ email })) }
+        : {}),
       subject: options.subject,
       textBody: [{ partId: "textBody", type: "text/plain" }],
       bodyValues: {
