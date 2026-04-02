@@ -5,6 +5,8 @@ An MCP server that gives LLM tools access to your email. Supports two backends:
 - **JMAP** — Fastmail's native API for fast, full-featured access (including sending)
 - **IMAP** — works with any IMAP-compatible email provider (read-only)
 
+The project intentionally keeps external dependencies to a minimum to reduce supply chain risk. The IMAP client is implemented from scratch using Node's built-in `net`/`tls` modules rather than pulling in third-party packages.
+
 ## Setup
 
 ```bash
