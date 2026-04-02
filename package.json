@@ -1,0 +1,40 @@
+{
+  "name": "better-email-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for email access via IMAP and Fastmail JMAP",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "email",
+    "imap",
+    "jmap",
+    "fastmail"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
+    "eslint": "^10.1.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
+    "typescript": "^6.0.2"
+  }
+}
