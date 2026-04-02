@@ -1,12 +1,15 @@
 {
   "name": "better-email-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for email access via IMAP and Fastmail JMAP",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "better-email-mcp": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -14,7 +17,12 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samteezy/better-email-mcp"
   },
   "keywords": [
     "mcp",

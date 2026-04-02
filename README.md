@@ -1,15 +1,32 @@
 # better-email-mcp
 
-An MCP server that gives LLM tools access to your email. Supports two backends:
+An MCP server that gives LLM tools access to your email — built to be the one you actually want to use.
 
-- **JMAP** — Fastmail's native API for fast, full-featured access (including sending)
-- **IMAP** — works with any IMAP-compatible email provider (add SMTP for sending)
+## Why "better"?
 
-The project intentionally keeps external dependencies to a minimum to reduce supply chain risk. The IMAP and SMTP clients are implemented from scratch using Node's built-in `net`/`tls` modules rather than pulling in third-party packages.
+- **Virtually zero dependencies.** The only runtime dependency is the MCP SDK itself. The IMAP and SMTP clients are implemented from scratch using Node's built-in `net`/`tls` modules — no third-party email libraries in your supply chain.
+- **Works with any email provider.** Supports both IMAP/SMTP (Gmail, Outlook, self-hosted, etc.) and Fastmail's JMAP API, so you're not locked into one provider.
+- **You control what the LLM can do.** Disable any tool with a single environment variable — enforce read-only access, hide search, or strip it down to just what you need. Less tool clutter means better LLM performance.
 
 ## Setup
 
+Install and run directly with npx — no clone needed:
+
 ```bash
+npx better-email-mcp
+```
+
+Or install globally:
+
+```bash
+npm install -g better-email-mcp
+```
+
+For local development:
+
+```bash
+git clone https://github.com/samteezy/better-email-mcp.git
+cd better-email-mcp
 npm install
 npm run build
 ```
@@ -79,8 +96,8 @@ This is useful for enforcing read-only access or reducing context for the LLM.
 {
   "mcpServers": {
     "email": {
-      "command": "node",
-      "args": ["/path/to/better-email-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["better-email-mcp"],
       "env": {
         "EMAIL_BACKEND": "jmap",
         "JMAP_TOKEN": "your-fastmail-api-token"
@@ -96,8 +113,8 @@ This is useful for enforcing read-only access or reducing context for the LLM.
 {
   "mcpServers": {
     "email": {
-      "command": "node",
-      "args": ["/path/to/better-email-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["better-email-mcp"],
       "env": {
         "EMAIL_BACKEND": "imap",
         "IMAP_HOST": "imap.example.com",
