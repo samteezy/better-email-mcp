@@ -11,7 +11,7 @@ export interface JmapConfig {
   sessionUrl?: string;
 }
 
-interface JmapSession {
+export interface JmapSession {
   apiUrl: string;
   accountId: string;
 }
@@ -73,6 +73,14 @@ export class JmapBackend implements EmailBackend {
 
   constructor(config: JmapConfig) {
     this.config = config;
+  }
+
+  getSession(): JmapSession | null {
+    return this.session;
+  }
+
+  getToken(): string {
+    return this.config.token;
   }
 
   async connect(): Promise<void> {

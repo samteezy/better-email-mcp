@@ -2,13 +2,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { JmapBackend } from "./backends/jmap.js";
+import { JmapContactsBackend } from "./backends/jmap-contacts.js";
 import { ImapBackend, SmtpConfig } from "./backends/imap.js";
 import { CalDavBackend } from "./caldav/backend.js";
 import { CardDavBackend } from "./carddav/backend.js";
 import { registerEmailTools } from "./tools/register.js";
 import { registerCalendarTools } from "./tools/calendar.js";
 import { registerContactTools } from "./tools/contacts.js";
-import { EmailBackend } from "./types.js";
+import { EmailBackend, ContactsBackend } from "./types.js";
 
 function createBackend(): EmailBackend {
   const backendType = process.env.EMAIL_BACKEND ?? "jmap";
@@ -70,7 +71,7 @@ function createBackend(): EmailBackend {
 
 const server = new McpServer({
   name: "better-email-mcp",
-  version: "0.2.0",
+  version: "0.3.0",
 });
 
 const backend = createBackend();
@@ -94,8 +95,8 @@ if (process.env.CALDAV_URL) {
   registerCalendarTools(server, calendarBackend);
 }
 
-// CardDAV — activates when CARDDAV_URL is set
-let contactsBackend: CardDavBackend | null = null;
+// Contacts — CardDAV when CARDDAV_URL is set, otherwise JMAP contacts when using JMAP backend
+let contactsBackend: ContactsBackend | null = null;
 if (process.env.CARDDAV_URL) {
   const username = process.env.CARDDAV_USERNAME;
   const password = process.env.CARDDAV_PASSWORD;
@@ -109,6 +110,10 @@ if (process.env.CARDDAV_URL) {
     username,
     password,
   });
+  registerContactTools(server, contactsBackend);
+} else if (backend instanceof JmapBackend) {
+  // JMAP contacts activate automatically — no extra config needed
+  contactsBackend = new JmapContactsBackend(backend, backend.getToken());
   registerContactTools(server, contactsBackend);
 }
 

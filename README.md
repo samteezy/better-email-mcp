@@ -5,7 +5,7 @@ An MCP server that gives LLM tools access to your email, calendar, and contacts 
 ## Why "better"?
 
 - **Virtually zero dependencies.** The only runtime dependency is the MCP SDK itself. IMAP, SMTP, CalDAV, and CardDAV clients are implemented from scratch using Node built-ins — no third-party libraries in your supply chain.
-- **Works with any provider.** Supports IMAP/SMTP (Gmail, Outlook, self-hosted, etc.), Fastmail JMAP, and any CalDAV/CardDAV server (Fastmail, iCloud, Nextcloud, Radicale, etc.).
+- **Works with any provider.** Supports IMAP/SMTP (Gmail, Outlook, self-hosted, etc.), Fastmail JMAP (email + contacts), and any CalDAV/CardDAV server (Fastmail, iCloud, Nextcloud, Radicale, etc.).
 - **You control what the LLM can do.** Disable any tool with a single environment variable — enforce read-only access, hide search, or strip it down to just what you need. Less tool clutter means better LLM performance.
 - **Token-efficient.** List and search responses return only essential fields by default. Pass `verbose: true` for full details when needed.
 
@@ -90,9 +90,11 @@ Calendar tools activate when `CALDAV_URL` is set. Works alongside any email back
 | `CALDAV_PASSWORD` | Yes | HTTP Basic auth password |
 | `CALDAV_DEFAULT_CALENDAR` | No | Default calendar name — when set, tools scope to this calendar automatically |
 
-### CardDAV (contacts)
+### Contacts
 
-Contact tools activate when `CARDDAV_URL` is set. Works alongside any email backend.
+When using the JMAP backend, contact tools activate automatically via JMAP Contacts (RFC 9610) — no extra configuration needed. To use CardDAV instead (or with the IMAP backend), set `CARDDAV_URL`:
+
+#### CardDAV (optional override)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -113,7 +115,7 @@ This is useful for enforcing read-only access or reducing context for the LLM. W
 
 ## Usage with MCP clients
 
-### JMAP (Fastmail)
+### JMAP (Fastmail) — email + contacts
 
 ```json
 {
@@ -129,6 +131,8 @@ This is useful for enforcing read-only access or reducing context for the LLM. W
   }
 }
 ```
+
+Contact tools are included automatically via JMAP — no CardDAV setup needed.
 
 ### IMAP
 
@@ -152,7 +156,7 @@ This is useful for enforcing read-only access or reducing context for the LLM. W
 }
 ```
 
-### JMAP + CalDAV + CardDAV (Fastmail, all features)
+### JMAP + CalDAV (Fastmail, all features)
 
 ```json
 {
@@ -165,15 +169,14 @@ This is useful for enforcing read-only access or reducing context for the LLM. W
         "JMAP_TOKEN": "your-fastmail-api-token",
         "CALDAV_URL": "https://caldav.fastmail.com/",
         "CALDAV_USERNAME": "you@fastmail.com",
-        "CALDAV_PASSWORD": "your-app-password",
-        "CARDDAV_URL": "https://carddav.fastmail.com/",
-        "CARDDAV_USERNAME": "you@fastmail.com",
-        "CARDDAV_PASSWORD": "your-app-password"
+        "CALDAV_PASSWORD": "your-app-password"
       }
     }
   }
 }
 ```
+
+Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV for contacts instead, set `CARDDAV_URL` (this overrides JMAP contacts).
 
 ## Tools
 
