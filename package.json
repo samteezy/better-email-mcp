@@ -1,6 +1,6 @@
 {
   "name": "better-email-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "MCP server for email, calendar, tasks, and contacts via IMAP, JMAP, CalDAV, and CardDAV",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
