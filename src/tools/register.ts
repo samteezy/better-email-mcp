@@ -28,6 +28,12 @@ function toolEnabled(name: string, disabled: Set<string>): boolean {
   return !disabled.has(name.toLowerCase());
 }
 
+function parseEmailFormat(): "plain" | "html" {
+  const raw = (process.env.EMAIL_FORMAT ?? "plain").trim().toLowerCase();
+  if (raw === "html") return "html";
+  return "plain";
+}
+
 export function registerEmailTools(
   server: McpServer,
   backend: EmailBackend
@@ -136,21 +142,37 @@ export function registerEmailTools(
 
   if (backend.sendMessage && toolEnabled("send_message", disabled)) {
     const sendFn = backend.sendMessage.bind(backend);
+    const emailFormat = parseEmailFormat();
+
+    const sendParams: Record<string, z.ZodType> = {
+      to: z.array(z.string()).describe("Recipient email addresses"),
+      subject: z.string().describe("Email subject"),
+      textBody: z.string().describe("Plain text body of the email"),
+      inReplyTo: z
+        .string()
+        .optional()
+        .describe("Message ID to reply to, for threading"),
+    };
+
+    if (emailFormat === "html") {
+      sendParams.htmlBody = z
+        .string()
+        .describe("HTML body of the email. The message is sent as multipart with both plain text and HTML.");
+    }
+
     server.tool(
       "send_message",
       "Send an email message",
-      {
-        to: z.array(z.string()).describe("Recipient email addresses"),
-        subject: z.string().describe("Email subject"),
-        textBody: z.string().describe("Plain text body of the email"),
-        inReplyTo: z
-          .string()
-          .optional()
-          .describe("Message ID to reply to, for threading"),
-      },
-      async ({ to, subject, textBody, inReplyTo }) => {
+      sendParams,
+      async (args: Record<string, unknown>) => {
         try {
-          const result = await sendFn({ to, subject, textBody, inReplyTo });
+          const result = await sendFn({
+            to: args.to as string[],
+            subject: args.subject as string,
+            textBody: args.textBody as string,
+            htmlBody: args.htmlBody as string | undefined,
+            inReplyTo: args.inReplyTo as string | undefined,
+          });
           return jsonResult({ sent: true, id: result.id });
         } catch (err) {
           return errorResult(err);

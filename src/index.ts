@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { JmapBackend } from "./backends/jmap.js";
-import { ImapBackend } from "./backends/imap.js";
+import { ImapBackend, SmtpConfig } from "./backends/imap.js";
 import { registerEmailTools } from "./tools/register.js";
 import { EmailBackend } from "./types.js";
 
@@ -28,13 +28,36 @@ function createBackend(): EmailBackend {
         "IMAP_HOST, IMAP_USER, and IMAP_PASSWORD environment variables are required"
       );
     }
-    return new ImapBackend({
-      host,
-      port: parseInt(process.env.IMAP_PORT ?? "993", 10),
-      user,
-      password,
-      tls: process.env.IMAP_TLS !== "false",
-    });
+    let smtpConfig: SmtpConfig | undefined;
+    const smtpHost = process.env.SMTP_HOST;
+    if (smtpHost) {
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPassword = process.env.SMTP_PASSWORD;
+      if (!smtpUser || !smtpPassword) {
+        throw new Error(
+          "SMTP_USER and SMTP_PASSWORD are required when SMTP_HOST is set"
+        );
+      }
+      smtpConfig = {
+        host: smtpHost,
+        port: parseInt(process.env.SMTP_PORT ?? "587", 10),
+        user: smtpUser,
+        password: smtpPassword,
+        tls: process.env.SMTP_TLS !== "false",
+        from: process.env.SMTP_FROM,
+      };
+    }
+
+    return new ImapBackend(
+      {
+        host,
+        port: parseInt(process.env.IMAP_PORT ?? "993", 10),
+        user,
+        password,
+        tls: process.env.IMAP_TLS !== "false",
+      },
+      smtpConfig
+    );
   }
 
   throw new Error(`Unknown backend: ${backendType}`);

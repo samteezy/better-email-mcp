@@ -32,6 +32,7 @@ export interface SendMessageOptions {
   to: string[];
   subject: string;
   textBody: string;
+  htmlBody?: string;
   inReplyTo?: string;
 }
 

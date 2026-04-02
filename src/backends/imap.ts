@@ -3,6 +3,7 @@ import {
   EmailMessage,
   ListMessagesOptions,
   SearchOptions,
+  SendMessageOptions,
 } from "../types.js";
 import { ImapClient, ImapError } from "../imap/client.js";
 import {
@@ -11,6 +12,7 @@ import {
   parseListResponse,
   ParsedFetch,
 } from "../imap/parser.js";
+import { SmtpClient } from "../smtp/client.js";
 
 export interface ImapConfig {
   host: string;
@@ -20,13 +22,30 @@ export interface ImapConfig {
   tls: boolean;
 }
 
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  tls: boolean;
+  from?: string;
+}
+
 export class ImapBackend implements EmailBackend {
   private config: ImapConfig;
   private client: ImapClient | null = null;
   private folderList: string[] = [];
+  private smtpConfig: SmtpConfig | undefined;
+  private smtpClient: SmtpClient | null = null;
 
-  constructor(config: ImapConfig) {
+  sendMessage?: (options: SendMessageOptions) => Promise<{ id: string }>;
+
+  constructor(config: ImapConfig, smtpConfig?: SmtpConfig) {
     this.config = config;
+    this.smtpConfig = smtpConfig;
+    if (smtpConfig) {
+      this.sendMessage = this.sendMessageImpl.bind(this);
+    }
   }
 
   async connect(): Promise<void> {
@@ -54,9 +73,41 @@ export class ImapBackend implements EmailBackend {
       }
     }
     this.folderList.sort();
+
+    // Connect SMTP if configured
+    if (this.smtpConfig) {
+      const smtp = this.smtpConfig;
+      const useImplicitTls = smtp.port === 465;
+      this.smtpClient = new SmtpClient();
+      await this.smtpClient.connect({
+        host: smtp.host,
+        port: smtp.port,
+        tls: useImplicitTls,
+      });
+
+      const fromAddr = smtp.from ?? smtp.user;
+      const domain = fromAddr.split("@")[1] ?? "localhost";
+      await this.smtpClient.ehlo(domain);
+
+      if (smtp.tls && !useImplicitTls) {
+        await this.smtpClient.startTls();
+        await this.smtpClient.ehlo(domain);
+      }
+
+      await this.smtpClient.authPlain(smtp.user, smtp.password);
+    }
   }
 
   async disconnect(): Promise<void> {
+    if (this.smtpClient) {
+      try {
+        await this.smtpClient.quit();
+      } catch {
+        // Ignore errors during SMTP quit
+      }
+      this.smtpClient = null;
+    }
+
     if (this.client) {
       await this.client.disconnect();
       this.client = null;
@@ -162,8 +213,57 @@ export class ImapBackend implements EmailBackend {
     return this.mapFetchResponses(fetchResponses, folder);
   }
 
-  // sendMessage is intentionally not implemented — IMAP is read-only.
-  // The EmailBackend interface makes it optional.
+  private async sendMessageImpl(
+    options: SendMessageOptions
+  ): Promise<{ id: string }> {
+    if (!this.smtpClient || !this.smtpConfig) {
+      throw new Error("SMTP not configured");
+    }
+
+    const from = this.smtpConfig.from ?? this.smtpConfig.user;
+    const domain = from.split("@")[1] ?? "localhost";
+    const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@${domain}>`;
+    const date = new Date().toUTCString();
+
+    let message = "";
+    message += `From: ${from}\r\n`;
+    message += `To: ${options.to.join(", ")}\r\n`;
+    message += `Subject: ${options.subject}\r\n`;
+    message += `Date: ${date}\r\n`;
+    message += `Message-ID: ${messageId}\r\n`;
+    message += `MIME-Version: 1.0\r\n`;
+    if (options.inReplyTo) {
+      message += `In-Reply-To: ${options.inReplyTo}\r\n`;
+      message += `References: ${options.inReplyTo}\r\n`;
+    }
+
+    if (options.htmlBody) {
+      const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      message += `Content-Type: multipart/alternative; boundary="${boundary}"\r\n`;
+      message += `\r\n`;
+      message += `--${boundary}\r\n`;
+      message += `Content-Type: text/plain; charset=utf-8\r\n`;
+      message += `\r\n`;
+      message += options.textBody + `\r\n`;
+      message += `--${boundary}\r\n`;
+      message += `Content-Type: text/html; charset=utf-8\r\n`;
+      message += `\r\n`;
+      message += options.htmlBody + `\r\n`;
+      message += `--${boundary}--\r\n`;
+    } else {
+      message += `Content-Type: text/plain; charset=utf-8\r\n`;
+      message += `\r\n`;
+      message += options.textBody;
+    }
+
+    await this.smtpClient.mailFrom(from);
+    for (const recipient of options.to) {
+      await this.smtpClient.rcptTo(recipient);
+    }
+    await this.smtpClient.data(message);
+
+    return { id: messageId };
+  }
 
   // --- Private helpers ---
 

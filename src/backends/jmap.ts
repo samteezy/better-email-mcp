@@ -298,8 +298,16 @@ export class JmapBackend implements EmailBackend {
       from: [{ name: this.identity.name, email: this.identity.email }],
       to: options.to.map((email) => ({ email })),
       subject: options.subject,
-      textBody: [{ partId: "body", type: "text/plain" }],
-      bodyValues: { body: { value: options.textBody } },
+      textBody: [{ partId: "textBody", type: "text/plain" }],
+      bodyValues: {
+        textBody: { value: options.textBody },
+        ...(options.htmlBody
+          ? { htmlBody: { value: options.htmlBody } }
+          : {}),
+      },
+      ...(options.htmlBody
+        ? { htmlBody: [{ partId: "htmlBody", type: "text/html" }] }
+        : {}),
       keywords: { $draft: true },
     };
     if (options.inReplyTo) {
