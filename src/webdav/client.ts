@@ -80,7 +80,25 @@ export class WebDavClient {
       headers["Content-Type"] = "application/xml; charset=utf-8";
     }
 
-    const res = await fetch(url, { method, headers, body });
+    let res = await fetch(url, { method, headers, body, redirect: "manual" });
+
+    // Follow redirects manually to preserve method and body (fetch may
+    // drop the body on automatic redirects for non-GET methods)
+    let redirects = 0;
+    while (
+      redirects < 5 &&
+      (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308)
+    ) {
+      const location = res.headers.get("location");
+      if (!location) break;
+      const redirectUrl = new URL(location, url).href;
+      // SSRF check: ensure redirect stays on same origin
+      if (new URL(redirectUrl).origin !== new URL(url).origin) {
+        throw new Error(`Refusing redirect to foreign origin: ${redirectUrl}`);
+      }
+      res = await fetch(redirectUrl, { method, headers, body, redirect: "manual" });
+      redirects++;
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");

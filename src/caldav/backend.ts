@@ -91,50 +91,17 @@ export class CalDavBackend implements CalendarBackend, TaskBackend {
     let calendarHomeUrl: string;
 
     try {
-      // Step 1: Discover current-user-principal
-      const principalEntries = await this.client.propfind(
-        this.config.url,
-        PROPFIND_PRINCIPAL,
-        "0",
-      );
-
-      let principalUrl: string | undefined;
-      for (const entry of principalEntries) {
-        const principalProp = entry.props.get("current-user-principal");
-        if (principalProp) {
-          principalUrl = extractText(principalProp, "href");
-          break;
-        }
-      }
-
-      if (!principalUrl) {
-        throw new Error("No current-user-principal found");
-      }
-
-      // Step 2: Discover calendar-home-set
-      const homeEntries = await this.client.propfind(
-        principalUrl,
-        PROPFIND_CALENDAR_HOME,
-        "0",
-      );
-
-      let homeUrl: string | undefined;
-      for (const entry of homeEntries) {
-        const homeProp = entry.props.get("calendar-home-set");
-        if (homeProp) {
-          homeUrl = extractText(homeProp, "href");
-          break;
-        }
-      }
-
-      if (!homeUrl) {
-        throw new Error("No calendar-home-set found");
-      }
-
-      calendarHomeUrl = homeUrl;
+      calendarHomeUrl = await this.discoverCalendarHome(this.config.url);
     } catch {
-      // Fallback: treat config.url as the calendar-home URL directly
-      calendarHomeUrl = this.config.url;
+      // Try .well-known/caldav discovery (RFC 6764)
+      try {
+        const base = new URL(this.config.url);
+        const wellKnownUrl = `${base.origin}/.well-known/caldav`;
+        calendarHomeUrl = await this.discoverCalendarHome(wellKnownUrl);
+      } catch {
+        // Final fallback: treat config.url as the calendar-home URL directly
+        calendarHomeUrl = this.config.url;
+      }
     }
 
     // Step 3: Discover calendars
@@ -436,6 +403,50 @@ export class CalDavBackend implements CalendarBackend, TaskBackend {
       throw new Error(`Failed to fetch completed task at ${href}`);
     }
     return task;
+  }
+
+  private async discoverCalendarHome(startUrl: string): Promise<string> {
+    // Step 1: Discover current-user-principal
+    const principalEntries = await this.client.propfind(
+      startUrl,
+      PROPFIND_PRINCIPAL,
+      "0",
+    );
+
+    let principalUrl: string | undefined;
+    for (const entry of principalEntries) {
+      const principalProp = entry.props.get("current-user-principal");
+      if (principalProp) {
+        principalUrl = extractText(principalProp, "href");
+        break;
+      }
+    }
+
+    if (!principalUrl) {
+      throw new Error("No current-user-principal found");
+    }
+
+    // Step 2: Discover calendar-home-set
+    const homeEntries = await this.client.propfind(
+      principalUrl,
+      PROPFIND_CALENDAR_HOME,
+      "0",
+    );
+
+    let homeUrl: string | undefined;
+    for (const entry of homeEntries) {
+      const homeProp = entry.props.get("calendar-home-set");
+      if (homeProp) {
+        homeUrl = extractText(homeProp, "href");
+        break;
+      }
+    }
+
+    if (!homeUrl) {
+      throw new Error("No calendar-home-set found");
+    }
+
+    return homeUrl;
   }
 
   private mapTask(vtodo: ParsedVTodo, href: string, calendar: string): TaskInfo {

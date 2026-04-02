@@ -153,10 +153,13 @@ describe("CalDavBackend", () => {
     it("falls back to config.url as calendar-home when principal discovery fails", async () => {
       const { backend, mockClient } = createBackend();
 
-      // Step 1 fails
+      // Step 1 fails (direct URL)
       mockClient.propfind.mockRejectedValueOnce(new Error("Not found"));
 
-      // Fallback: list calendars directly from config.url
+      // Step 1 fails again (.well-known/caldav attempt)
+      mockClient.propfind.mockRejectedValueOnce(new Error("Not found"));
+
+      // Final fallback: list calendars directly from config.url
       mockClient.propfind.mockResolvedValueOnce([
         entry("/dav/", {
           resourcetype: '<d:collection/>',
