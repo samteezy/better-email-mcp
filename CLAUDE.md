@@ -37,17 +37,20 @@ The goal is a well-designed, opinionated MCP server that goes beyond existing so
 
 The server is organized around two layers:
 
-1. **Backend adapters** (`src/backends/`) — one for IMAP and one for JMAP. Each implements the `EmailBackend` interface defined in `src/types.ts`, so the MCP tool layer is backend-agnostic.
+1. **Backend adapters** (`src/backends/`) — IMAP and JMAP backends, each implementing the `EmailBackend` interface defined in `src/types.ts`, so the MCP tool layer is backend-agnostic.
 
-2. **MCP tool layer** (`src/tools/`) — registers MCP tools (e.g. `list_messages`, `get_message`, `search`) that delegate to whichever backend is configured. Tool inputs and outputs are designed for LLM usability: concise, structured, and avoiding raw MIME blobs where possible.
+2. **IMAP client** (`src/imap/`) — zero-dependency IMAP implementation using Node's built-in `net`/`tls` modules. `parser.ts` handles IMAP response parsing (parenthesized lists, envelopes, RFC 2047 decoding). `client.ts` manages the TCP/TLS connection with tagged command/response handling and literal string support.
 
-Entry point is `src/index.ts` — creates the `McpServer`, registers tools, and connects via stdio transport.
+3. **MCP tool layer** (`src/tools/`) — registers MCP tools (e.g. `list_messages`, `get_message`, `search`) that delegate to whichever backend is configured. Tool inputs and outputs are designed for LLM usability: concise, structured, and avoiding raw MIME blobs where possible.
 
-Backend is selected at startup via environment variables — not at tool-call time.
+Entry point is `src/index.ts` — creates the `McpServer`, registers tools, and connects via stdio transport. Backend is selected at startup via `EMAIL_BACKEND` env var (`"jmap"` default, or `"imap"`).
+
+**IMAP message IDs** use composite `folder:uid` format (e.g. `INBOX:4523`) since IMAP UIDs are only unique within a mailbox. The IMAP backend does not implement `sendMessage` (IMAP is read-only; SMTP would be needed for sending).
 
 ## Key Design Principles
 
 - **LLM-first tool design**: tool schemas and return values should be easy for a model to reason about. Prefer structured fields (sender, subject, date, snippet) over raw RFC 2822 output.
 - **Single backend per server instance**: don't try to multiplex IMAP and JMAP in one running server. Run two instances if needed.
 - **Credentials via environment**: `IMAP_HOST`, `IMAP_USER`, `IMAP_PASSWORD`, `JMAP_TOKEN`, etc. Never bake credentials into config files committed to the repo.
-- **Minimal dependencies**: prefer well-maintained, narrowly-scoped libraries for IMAP/JMAP over large framework solutions.
+- **Zero/minimal dependencies**: the IMAP client is implemented from scratch using Node built-ins (`net`/`tls`) to minimize supply chain attack surface. Avoid adding npm packages when the functionality can be implemented with reasonable effort.
+- **User-disablable tools**: users can set `DISABLED_TOOLS=send_message,search_messages` to prevent specific tools from being registered. This reduces context pollution for LLMs and lets operators enforce read-only or least-privilege access. Parsed once at startup, comma-separated, case-insensitive.

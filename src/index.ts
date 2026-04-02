@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { JmapBackend } from "./backends/jmap.js";
+import { ImapBackend } from "./backends/imap.js";
 import { registerEmailTools } from "./tools/register.js";
 import { EmailBackend } from "./types.js";
 
@@ -15,6 +16,24 @@ function createBackend(): EmailBackend {
     return new JmapBackend({
       token,
       sessionUrl: process.env.JMAP_SESSION_URL,
+    });
+  }
+
+  if (backendType === "imap") {
+    const host = process.env.IMAP_HOST;
+    const user = process.env.IMAP_USER;
+    const password = process.env.IMAP_PASSWORD;
+    if (!host || !user || !password) {
+      throw new Error(
+        "IMAP_HOST, IMAP_USER, and IMAP_PASSWORD environment variables are required"
+      );
+    }
+    return new ImapBackend({
+      host,
+      port: parseInt(process.env.IMAP_PORT ?? "993", 10),
+      user,
+      password,
+      tls: process.env.IMAP_TLS !== "false",
     });
   }
 
