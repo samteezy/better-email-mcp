@@ -48,3 +48,87 @@ export interface EmailBackend {
   searchMessages(options: SearchOptions): Promise<EmailMessage[]>;
   sendMessage?(options: SendMessageOptions): Promise<{ id: string }>;
 }
+
+// --- Calendar types ---
+
+export interface CalendarInfo {
+  href: string;
+  name: string;
+  color?: string;
+  description?: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  href: string;
+  calendar: string;
+  title: string;
+  start: string;
+  end: string;
+  location?: string;
+  description?: string;
+  organizer?: string;
+  attendees?: string[];
+  status?: string;
+  recurrence?: string;
+  allDay: boolean;
+}
+
+export interface ListEventsOptions {
+  calendar?: string;
+  limit?: number;
+}
+
+export interface SearchEventsOptions {
+  query: string;
+  calendar?: string;
+  limit?: number;
+}
+
+export interface CalendarBackend {
+  connect(): Promise<void>;
+  listCalendars(): Promise<CalendarInfo[]>;
+  listEvents(options?: ListEventsOptions): Promise<CalendarEvent[]>;
+  getEvent(href: string): Promise<CalendarEvent | null>;
+  searchEvents(options: SearchEventsOptions): Promise<CalendarEvent[]>;
+}
+
+// --- Contact types ---
+
+export interface AddressBookInfo {
+  href: string;
+  name: string;
+  description?: string;
+}
+
+export interface Contact {
+  id: string;
+  href: string;
+  addressBook: string;
+  name: string;
+  emails?: string[];
+  phones?: string[];
+  organization?: string;
+  title?: string;
+  address?: string;
+  notes?: string;
+}
+
+export interface ListContactsOptions {
+  addressBook?: string;
+  limit?: number;
+}
+
+export interface SearchContactsOptions {
+  query: string;
+  addressBook?: string;
+  limit?: number;
+}
+
+export interface ContactsBackend {
+  connect(): Promise<void>;
+  listAddressBooks(): Promise<AddressBookInfo[]>;
+  listContacts(options?: ListContactsOptions): Promise<Contact[]>;
+  getContact(href: string): Promise<Contact | null>;
+  searchContacts(options: SearchContactsOptions): Promise<Contact[]>;
+}

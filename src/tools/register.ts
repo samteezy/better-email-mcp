@@ -1,31 +1,22 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { EmailBackend } from "../types.js";
+import { EmailBackend, EmailMessage } from "../types.js";
+import {
+  errorResult,
+  jsonResult,
+  parseDisabledTools,
+  toolEnabled,
+} from "./helpers.js";
 
-type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
-  isError?: boolean;
-};
-
-function errorResult(err: unknown): ToolResult {
-  const message = err instanceof Error ? err.message : String(err);
-  return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
-}
-
-function jsonResult(data: unknown): ToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
-
-function parseDisabledTools(): Set<string> {
-  const raw = process.env.DISABLED_TOOLS ?? "";
-  if (!raw.trim()) return new Set();
-  return new Set(
-    raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-  );
-}
-
-function toolEnabled(name: string, disabled: Set<string>): boolean {
-  return !disabled.has(name.toLowerCase());
+function toLeanMessages(
+  messages: EmailMessage[],
+  opts: { includeFolder: boolean }
+) {
+  return messages.map(({ id, from, subject, date, snippet, folder }) => {
+    const lean: Record<string, unknown> = { id, from, subject, date, snippet };
+    if (opts.includeFolder) lean.folder = folder;
+    return lean;
+  });
 }
 
 function parseEmailFormat(): "plain" | "html" {
@@ -78,11 +69,16 @@ export function registerEmailTools(
           .min(0)
           .optional()
           .describe("Number of messages to skip for pagination"),
+        verbose: z
+          .boolean()
+          .optional()
+          .describe("Return all fields (to, cc, isRead, folder) — default returns only id, from, subject, date, snippet"),
       },
-      async ({ folder, limit, offset }) => {
+      async ({ folder, limit, offset, verbose }) => {
         try {
           const messages = await backend.listMessages({ folder, limit, offset });
-          return jsonResult(messages);
+          if (verbose) return jsonResult(messages);
+          return jsonResult(toLeanMessages(messages, { includeFolder: !folder }));
         } catch (err) {
           return errorResult(err);
         }
@@ -128,11 +124,16 @@ export function registerEmailTools(
           .max(100)
           .optional()
           .describe("Max results (default 25)"),
+        verbose: z
+          .boolean()
+          .optional()
+          .describe("Return all fields (to, cc, isRead, folder) — default returns only id, from, subject, date, snippet"),
       },
-      async ({ query, folder, limit }) => {
+      async ({ query, folder, limit, verbose }) => {
         try {
           const messages = await backend.searchMessages({ query, folder, limit });
-          return jsonResult(messages);
+          if (verbose) return jsonResult(messages);
+          return jsonResult(toLeanMessages(messages, { includeFolder: !folder }));
         } catch (err) {
           return errorResult(err);
         }

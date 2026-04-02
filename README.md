@@ -1,12 +1,13 @@
 # better-email-mcp
 
-An MCP server that gives LLM tools access to your email — built to be the one you actually want to use.
+An MCP server that gives LLM tools access to your email, calendar, and contacts — built to be the one you actually want to use.
 
 ## Why "better"?
 
-- **Virtually zero dependencies.** The only runtime dependency is the MCP SDK itself. The IMAP and SMTP clients are implemented from scratch using Node's built-in `net`/`tls` modules — no third-party email libraries in your supply chain.
-- **Works with any email provider.** Supports both IMAP/SMTP (Gmail, Outlook, self-hosted, etc.) and Fastmail's JMAP API, so you're not locked into one provider.
+- **Virtually zero dependencies.** The only runtime dependency is the MCP SDK itself. IMAP, SMTP, CalDAV, and CardDAV clients are implemented from scratch using Node built-ins — no third-party libraries in your supply chain.
+- **Works with any provider.** Supports IMAP/SMTP (Gmail, Outlook, self-hosted, etc.), Fastmail JMAP, and any CalDAV/CardDAV server (Fastmail, iCloud, Nextcloud, Radicale, etc.).
 - **You control what the LLM can do.** Disable any tool with a single environment variable — enforce read-only access, hide search, or strip it down to just what you need. Less tool clutter means better LLM performance.
+- **Token-efficient.** List and search responses return only essential fields by default. Pass `verbose: true` for full details when needed.
 
 ## Setup
 
@@ -78,6 +79,28 @@ To enable sending with the IMAP backend, configure an SMTP server:
 
 If `SMTP_HOST` is not set, the IMAP backend is read-only and the `send_message` tool is not registered.
 
+### CalDAV (calendar)
+
+Calendar tools activate when `CALDAV_URL` is set. Works alongside any email backend.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CALDAV_URL` | Yes | CalDAV principal or calendar-home URL |
+| `CALDAV_USERNAME` | Yes | HTTP Basic auth username |
+| `CALDAV_PASSWORD` | Yes | HTTP Basic auth password |
+| `CALDAV_DEFAULT_CALENDAR` | No | Default calendar name — when set, tools scope to this calendar automatically |
+
+### CardDAV (contacts)
+
+Contact tools activate when `CARDDAV_URL` is set. Works alongside any email backend.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CARDDAV_URL` | Yes | CardDAV principal or addressbook-home URL |
+| `CARDDAV_USERNAME` | Yes | HTTP Basic auth username |
+| `CARDDAV_PASSWORD` | Yes | HTTP Basic auth password |
+| `CARDDAV_DEFAULT_ADDRESS_BOOK` | No | Default address book name — when set, tools scope to this book automatically |
+
 ### Disabling tools
 
 Set `DISABLED_TOOLS` to a comma-separated list of tool names to prevent them from being registered:
@@ -86,7 +109,7 @@ Set `DISABLED_TOOLS` to a comma-separated list of tool names to prevent them fro
 DISABLED_TOOLS=send_message,search_messages
 ```
 
-This is useful for enforcing read-only access or reducing context for the LLM.
+This is useful for enforcing read-only access or reducing context for the LLM. When using `CALDAV_DEFAULT_CALENDAR` or `CARDDAV_DEFAULT_ADDRESS_BOOK`, you can also disable `list_calendars` or `list_address_books` since the LLM no longer needs to discover them.
 
 ## Usage with MCP clients
 
@@ -129,7 +152,32 @@ This is useful for enforcing read-only access or reducing context for the LLM.
 }
 ```
 
+### JMAP + CalDAV + CardDAV (Fastmail, all features)
+
+```json
+{
+  "mcpServers": {
+    "email": {
+      "command": "npx",
+      "args": ["better-email-mcp"],
+      "env": {
+        "EMAIL_BACKEND": "jmap",
+        "JMAP_TOKEN": "your-fastmail-api-token",
+        "CALDAV_URL": "https://caldav.fastmail.com/dav/calendars",
+        "CALDAV_USERNAME": "you@fastmail.com",
+        "CALDAV_PASSWORD": "your-app-password",
+        "CARDDAV_URL": "https://carddav.fastmail.com/dav/addressbooks",
+        "CARDDAV_USERNAME": "you@fastmail.com",
+        "CARDDAV_PASSWORD": "your-app-password"
+      }
+    }
+  }
+}
+```
+
 ## Tools
+
+### Email
 
 | Tool | Description |
 |------|-------------|
@@ -138,3 +186,35 @@ This is useful for enforcing read-only access or reducing context for the LLM.
 | `get_message` | Get a single message by ID, including full body |
 | `search_messages` | Search messages by text query |
 | `send_message` | Send an email (JMAP, or IMAP with SMTP configured) |
+
+### Calendar (CalDAV)
+
+| Tool | Description |
+|------|-------------|
+| `list_calendars` | List all calendars |
+| `list_events` | List calendar events with optional calendar filter and limit |
+| `get_event` | Get a single event by href, including full details |
+| `search_events` | Search events by text query (matches title, description, location) |
+
+### Contacts (CardDAV)
+
+| Tool | Description |
+|------|-------------|
+| `list_address_books` | List all address books |
+| `list_contacts` | List contacts with optional address book filter and limit |
+| `get_contact` | Get a single contact by href, including full details |
+| `search_contacts` | Search contacts by name, email, phone, or organization |
+
+## Token efficiency
+
+All tool responses use compact JSON (no pretty-printing). List and search tools (`list_messages`, `search_messages`, `list_events`, `search_events`, `list_contacts`, `search_contacts`) return a lean field set by default — just enough to identify and triage each item. Pass `verbose: true` to get the full response with all fields.
+
+**Default fields by tool type:**
+
+| Tool type | Default fields | Additional with `verbose: true` |
+|-----------|---------------|--------------------------------|
+| Email list/search | `id`, `from`, `subject`, `date`, `snippet` | `to`, `cc`, `isRead`, `folder` |
+| Calendar list/search | `id`, `href`, `title`, `start`, `end`, `location`, `allDay` | `description`, `organizer`, `attendees`, `status`, `recurrence`, `calendar` |
+| Contact list/search | `id`, `href`, `name`, `emails`, `phones` | `organization`, `title`, `address`, `notes`, `addressBook` |
+
+The `folder`, `calendar`, and `addressBook` fields are automatically included in lean responses when no filter is applied (listing across all), and omitted when filtering by a specific one (since it's redundant).

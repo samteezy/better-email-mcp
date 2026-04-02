@@ -3,7 +3,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { JmapBackend } from "./backends/jmap.js";
 import { ImapBackend, SmtpConfig } from "./backends/imap.js";
+import { CalDavBackend } from "./caldav/backend.js";
+import { CardDavBackend } from "./carddav/backend.js";
 import { registerEmailTools } from "./tools/register.js";
+import { registerCalendarTools } from "./tools/calendar.js";
+import { registerContactTools } from "./tools/contacts.js";
 import { EmailBackend } from "./types.js";
 
 function createBackend(): EmailBackend {
@@ -66,14 +70,52 @@ function createBackend(): EmailBackend {
 
 const server = new McpServer({
   name: "better-email-mcp",
-  version: "0.1.0",
+  version: "0.2.0",
 });
 
 const backend = createBackend();
 registerEmailTools(server, backend);
 
+// CalDAV — activates when CALDAV_URL is set
+let calendarBackend: CalDavBackend | null = null;
+if (process.env.CALDAV_URL) {
+  const username = process.env.CALDAV_USERNAME;
+  const password = process.env.CALDAV_PASSWORD;
+  if (!username || !password) {
+    throw new Error(
+      "CALDAV_USERNAME and CALDAV_PASSWORD are required when CALDAV_URL is set"
+    );
+  }
+  calendarBackend = new CalDavBackend({
+    url: process.env.CALDAV_URL,
+    username,
+    password,
+  });
+  registerCalendarTools(server, calendarBackend);
+}
+
+// CardDAV — activates when CARDDAV_URL is set
+let contactsBackend: CardDavBackend | null = null;
+if (process.env.CARDDAV_URL) {
+  const username = process.env.CARDDAV_USERNAME;
+  const password = process.env.CARDDAV_PASSWORD;
+  if (!username || !password) {
+    throw new Error(
+      "CARDDAV_USERNAME and CARDDAV_PASSWORD are required when CARDDAV_URL is set"
+    );
+  }
+  contactsBackend = new CardDavBackend({
+    url: process.env.CARDDAV_URL,
+    username,
+    password,
+  });
+  registerContactTools(server, contactsBackend);
+}
+
 async function main() {
   await backend.connect();
+  if (calendarBackend) await calendarBackend.connect();
+  if (contactsBackend) await contactsBackend.connect();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
