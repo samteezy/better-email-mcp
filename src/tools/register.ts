@@ -8,6 +8,8 @@ import {
   toolEnabled,
 } from "./helpers.js";
 
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 MB
+
 function toLeanMessages(
   messages: EmailMessage[],
   opts: { includeFolder: boolean }
@@ -179,6 +181,48 @@ export function registerEmailTools(
             inReplyTo: args.inReplyTo as string | undefined,
           });
           return jsonResult({ sent: true, id: result.id });
+        } catch (err) {
+          return errorResult(err);
+        }
+      }
+    );
+  }
+
+  if (backend.getAttachment && toolEnabled("get_attachment", disabled)) {
+    const getAttachmentFn = backend.getAttachment.bind(backend);
+
+    server.tool(
+      "get_attachment",
+      "Download an email attachment by part ID (from get_message attachments list). Returns base64-encoded content.",
+      {
+        id: z.string().describe("The message ID"),
+        partId: z
+          .string()
+          .describe(
+            "The attachment part ID (from the attachments array in get_message response)"
+          ),
+      },
+      async ({ id, partId }) => {
+        try {
+          // Pre-check size if possible by fetching message metadata
+          const msg = await backend.getMessage(id);
+          if (!msg) {
+            return {
+              content: [{ type: "text" as const, text: "Message not found" }],
+              isError: true,
+            };
+          }
+          const attachInfo = msg.attachments?.find((a) => a.partId === partId);
+          if (attachInfo && attachInfo.size > MAX_ATTACHMENT_SIZE) {
+            return errorResult(
+              new Error(
+                `Attachment too large: ${attachInfo.size} bytes (max ${MAX_ATTACHMENT_SIZE})`
+              )
+            );
+          }
+
+          const result = await getAttachmentFn(id, partId);
+          return jsonResult(result);
         } catch (err) {
           return errorResult(err);
         }

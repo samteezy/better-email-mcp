@@ -1,4 +1,6 @@
 import {
+  AttachmentContent,
+  AttachmentInfo,
   EmailBackend,
   EmailMessage,
   ListMessagesOptions,
@@ -14,6 +16,7 @@ export interface JmapConfig {
 export interface JmapSession {
   apiUrl: string;
   accountId: string;
+  downloadUrl: string;
 }
 
 interface JmapIdentity {
@@ -62,6 +65,7 @@ const FULL_PROPERTIES = [
   "textBody",
   "htmlBody",
   "bodyValues",
+  "bodyStructure",
 ];
 
 export class JmapBackend implements EmailBackend {
@@ -99,6 +103,7 @@ export class JmapBackend implements EmailBackend {
       apiUrl: sessionData.apiUrl,
       accountId:
         sessionData.primaryAccounts["urn:ietf:params:jmap:mail"],
+      downloadUrl: sessionData.downloadUrl ?? "",
     };
 
     // 2. Fetch mailboxes and identity in one request
@@ -213,6 +218,15 @@ export class JmapBackend implements EmailBackend {
           ids: [id],
           properties: FULL_PROPERTIES,
           fetchAllBodyValues: true,
+          bodyProperties: [
+            "partId",
+            "blobId",
+            "type",
+            "name",
+            "size",
+            "cid",
+            "disposition",
+          ],
         },
         "0",
       ],
@@ -238,7 +252,82 @@ export class JmapBackend implements EmailBackend {
       message.body = bodyText;
     }
 
+    // Extract attachment metadata from bodyStructure
+    if (raw.bodyStructure) {
+      const attachments = this.extractJmapAttachments(raw.bodyStructure);
+      if (attachments.length > 0) {
+        message.attachments = attachments;
+      }
+    }
+
     return message;
+  }
+
+  async getAttachment(
+    messageId: string,
+    partId: string
+  ): Promise<AttachmentContent> {
+    const session = this.ensureConnected();
+
+    // Fetch message to find the part metadata
+    const responses = await this.jmapRequest([
+      [
+        "Email/get",
+        {
+          accountId: session.accountId,
+          ids: [messageId],
+          properties: ["bodyStructure"],
+          bodyProperties: [
+            "partId",
+            "blobId",
+            "type",
+            "name",
+            "size",
+            "cid",
+            "disposition",
+          ],
+        },
+        "0",
+      ],
+    ]);
+
+    const emailResponse = this.findResponse(responses, "Email/get");
+    if (
+      emailResponse.list.length === 0 ||
+      emailResponse.notFound?.includes(messageId)
+    ) {
+      throw new Error(`Message not found: ${messageId}`);
+    }
+
+    const raw = emailResponse.list[0];
+    const part = this.findJmapPart(raw.bodyStructure, partId);
+    if (!part) {
+      throw new Error(`Attachment part ${partId} not found`);
+    }
+
+    // Download blob via downloadUrl template
+    const downloadUrl = session.downloadUrl
+      .replace("{accountId}", encodeURIComponent(session.accountId))
+      .replace("{blobId}", encodeURIComponent(partId))
+      .replace("{type}", encodeURIComponent(part.type ?? "application/octet-stream"))
+      .replace("{name}", encodeURIComponent(part.name ?? "attachment"));
+
+    const res = await fetch(downloadUrl, {
+      headers: { Authorization: `Bearer ${this.config.token}` },
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Failed to download attachment: ${res.status} ${res.statusText}`
+      );
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+
+    return {
+      filename: part.name ?? "attachment",
+      mimeType: part.type ?? "application/octet-stream",
+      content: buffer.toString("base64"),
+    };
   }
 
   async searchMessages(options: SearchOptions): Promise<EmailMessage[]> {
@@ -431,6 +520,55 @@ export class JmapBackend implements EmailBackend {
       current = parent;
     }
     return parts.join("/");
+  }
+
+  private extractJmapAttachments(bodyStructure: any): AttachmentInfo[] {
+    const attachments: AttachmentInfo[] = [];
+    this.collectJmapAttachments(bodyStructure, attachments);
+    return attachments;
+  }
+
+  private collectJmapAttachments(part: any, out: AttachmentInfo[]): void {
+    if (part.subParts) {
+      for (const sub of part.subParts) {
+        this.collectJmapAttachments(sub, out);
+      }
+      return;
+    }
+
+    // Skip text body parts unless explicitly attached
+    const type: string = part.type ?? "";
+    if (
+      (type === "text/plain" || type === "text/html") &&
+      part.disposition !== "attachment"
+    ) {
+      return;
+    }
+
+    // Skip multipart containers
+    if (type.startsWith("multipart/")) return;
+
+    // Only include parts that have a blobId (downloadable)
+    if (!part.blobId) return;
+
+    out.push({
+      partId: part.blobId,
+      filename: part.name ?? `attachment-${part.partId ?? "unknown"}`,
+      mimeType: type || "application/octet-stream",
+      size: part.size ?? 0,
+      isInline: part.disposition === "inline" && !!part.cid,
+    });
+  }
+
+  private findJmapPart(bodyStructure: any, blobId: string): any | null {
+    if (bodyStructure.blobId === blobId) return bodyStructure;
+    if (bodyStructure.subParts) {
+      for (const sub of bodyStructure.subParts) {
+        const found = this.findJmapPart(sub, blobId);
+        if (found) return found;
+      }
+    }
+    return null;
   }
 
   private mapJmapEmail(raw: any): EmailMessage {

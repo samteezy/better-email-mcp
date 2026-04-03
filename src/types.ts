@@ -3,6 +3,20 @@
  * The MCP tool layer depends only on this interface, never on a specific backend.
  */
 
+export interface AttachmentInfo {
+  partId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  isInline: boolean;
+}
+
+export interface AttachmentContent {
+  filename: string;
+  mimeType: string;
+  content: string; // base64-encoded
+}
+
 export interface EmailMessage {
   id: string;
   subject: string;
@@ -14,6 +28,7 @@ export interface EmailMessage {
   body?: string;
   isRead: boolean;
   folder: string;
+  attachments?: AttachmentInfo[];
 }
 
 export interface ListMessagesOptions {
@@ -47,6 +62,7 @@ export interface EmailBackend {
   getMessage(id: string): Promise<EmailMessage | null>;
   searchMessages(options: SearchOptions): Promise<EmailMessage[]>;
   sendMessage?(options: SendMessageOptions): Promise<{ id: string }>;
+  getAttachment?(messageId: string, partId: string): Promise<AttachmentContent>;
 }
 
 // --- Calendar types ---

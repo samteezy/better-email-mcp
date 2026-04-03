@@ -5,6 +5,11 @@ import {
   parseSearchResponse,
   parseListResponse,
   decodeRfc2047,
+  parseBodyStructure,
+  flattenAttachments,
+  findBodyPart,
+  decodePartContent,
+  decodeQuotedPrintable,
 } from "./parser";
 
 describe("parseResponseLine", () => {
@@ -237,5 +242,249 @@ describe("decodeRfc2047", () => {
 
   it("handles null/empty input", () => {
     expect(decodeRfc2047("")).toBe("");
+  });
+});
+
+describe("parseBodyStructure", () => {
+  it("parses a simple text/plain message", () => {
+    // ("text" "plain" ("charset" "UTF-8") NIL NIL "7BIT" 1234 50)
+    const list = ["text", "plain", ["charset", "UTF-8"], null, null, "7BIT", "1234", "50"];
+    const part = parseBodyStructure(list);
+    expect(part.partId).toBe("1");
+    expect(part.type).toBe("text");
+    expect(part.subtype).toBe("plain");
+    expect(part.parameters).toEqual({ charset: "UTF-8" });
+    expect(part.encoding).toBe("7BIT");
+    expect(part.size).toBe(1234);
+  });
+
+  it("parses multipart/mixed with text + one attachment", () => {
+    // ((text/plain)(application/pdf) "mixed")
+    const list = [
+      ["text", "plain", ["charset", "utf-8"], null, null, "7BIT", "500", "20"],
+      ["application", "pdf", ["name", "report.pdf"], null, null, "BASE64", "9876"],
+      "mixed",
+    ];
+    const part = parseBodyStructure(list);
+    expect(part.type).toBe("multipart");
+    expect(part.subtype).toBe("mixed");
+    expect(part.parts).toHaveLength(2);
+    expect(part.parts![0].partId).toBe("1");
+    expect(part.parts![0].type).toBe("text");
+    expect(part.parts![1].partId).toBe("2");
+    expect(part.parts![1].type).toBe("application");
+    expect(part.parts![1].subtype).toBe("pdf");
+    expect(part.parts![1].size).toBe(9876);
+  });
+
+  it("parses nested multipart: mixed containing alternative + attachment", () => {
+    // ((alternative: (text/plain)(text/html))(application/pdf) "mixed")
+    const list = [
+      [
+        ["text", "plain", ["charset", "utf-8"], null, null, "QUOTED-PRINTABLE", "300", "10"],
+        ["text", "html", ["charset", "utf-8"], null, null, "QUOTED-PRINTABLE", "800", "25"],
+        "alternative",
+      ],
+      ["application", "pdf", ["name", "doc.pdf"], null, null, "BASE64", "5000"],
+      "mixed",
+    ];
+    const part = parseBodyStructure(list);
+    expect(part.type).toBe("multipart");
+    expect(part.subtype).toBe("mixed");
+    expect(part.parts).toHaveLength(2);
+
+    const altPart = part.parts![0];
+    expect(altPart.type).toBe("multipart");
+    expect(altPart.subtype).toBe("alternative");
+    expect(altPart.parts).toHaveLength(2);
+    expect(altPart.parts![0].partId).toBe("1.1");
+    expect(altPart.parts![1].partId).toBe("1.2");
+
+    const pdfPart = part.parts![1];
+    expect(pdfPart.partId).toBe("2");
+    expect(pdfPart.type).toBe("application");
+  });
+
+  it("parses disposition from extension data", () => {
+    // Single part with disposition
+    const list = [
+      "application", "pdf",
+      ["name", "report.pdf"],
+      null, null, "BASE64", "5000",
+      // extension: md5, disposition
+      null, ["attachment", ["filename", "report.pdf"]],
+    ];
+    const part = parseBodyStructure(list);
+    expect(part.disposition).toBe("attachment");
+    expect(part.dispositionParams).toEqual({ filename: "report.pdf" });
+  });
+
+  it("handles inline disposition with content-id", () => {
+    const list = [
+      "image", "png",
+      ["name", "logo.png"],
+      "<logo123@example.com>", null, "BASE64", "2048",
+      null, ["inline", ["filename", "logo.png"]],
+    ];
+    const part = parseBodyStructure(list);
+    expect(part.contentId).toBe("logo123@example.com");
+    expect(part.disposition).toBe("inline");
+  });
+
+  it("handles missing parameters gracefully", () => {
+    const list = ["application", "octet-stream", null, null, null, "BASE64", "100"];
+    const part = parseBodyStructure(list);
+    expect(part.parameters).toEqual({});
+    expect(part.contentId).toBeNull();
+    expect(part.disposition).toBeNull();
+  });
+});
+
+describe("flattenAttachments", () => {
+  it("returns empty for text-only message", () => {
+    const part = parseBodyStructure(
+      ["text", "plain", ["charset", "utf-8"], null, null, "7BIT", "500", "20"]
+    );
+    expect(flattenAttachments(part)).toEqual([]);
+  });
+
+  it("extracts attachments from multipart/mixed", () => {
+    const structure = parseBodyStructure([
+      ["text", "plain", ["charset", "utf-8"], null, null, "7BIT", "500", "20"],
+      ["application", "pdf", ["name", "file.pdf"], null, null, "BASE64", "9876"],
+      ["image", "jpeg", ["name", "photo.jpg"], null, null, "BASE64", "4000"],
+      "mixed",
+    ]);
+    const attachments = flattenAttachments(structure);
+    expect(attachments).toHaveLength(2);
+    expect(attachments[0].filename).toBe("file.pdf");
+    expect(attachments[0].mimeType).toBe("application/pdf");
+    expect(attachments[0].partId).toBe("2");
+    expect(attachments[1].filename).toBe("photo.jpg");
+    expect(attachments[1].partId).toBe("3");
+  });
+
+  it("skips text/html body but includes explicitly attached text", () => {
+    const structure = parseBodyStructure([
+      [
+        ["text", "plain", ["charset", "utf-8"], null, null, "7BIT", "500", "20"],
+        ["text", "html", ["charset", "utf-8"], null, null, "7BIT", "800", "25"],
+        "alternative",
+      ],
+      "mixed",
+    ]);
+    expect(flattenAttachments(structure)).toEqual([]);
+  });
+
+  it("identifies inline images with content-id", () => {
+    const structure = parseBodyStructure([
+      ["text", "html", ["charset", "utf-8"], null, null, "7BIT", "800", "25"],
+      ["image", "png", ["name", "logo.png"], "<cid123>", null, "BASE64", "2048",
+        null, ["inline", ["filename", "logo.png"]]],
+      "related",
+    ]);
+    const attachments = flattenAttachments(structure);
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].isInline).toBe(true);
+    expect(attachments[0].filename).toBe("logo.png");
+  });
+
+  it("uses fallback filename when none provided", () => {
+    const structure = parseBodyStructure([
+      ["text", "plain", null, null, null, "7BIT", "500", "20"],
+      ["application", "octet-stream", null, null, null, "BASE64", "1000"],
+      "mixed",
+    ]);
+    const attachments = flattenAttachments(structure);
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].filename).toBe("attachment-2");
+  });
+});
+
+describe("findBodyPart", () => {
+  it("finds a part by ID in nested structure", () => {
+    const structure = parseBodyStructure([
+      [
+        ["text", "plain", null, null, null, "7BIT", "500", "20"],
+        ["text", "html", null, null, null, "7BIT", "800", "25"],
+        "alternative",
+      ],
+      ["application", "pdf", ["name", "doc.pdf"], null, null, "BASE64", "5000"],
+      "mixed",
+    ]);
+    const found = findBodyPart(structure, "2");
+    expect(found).not.toBeNull();
+    expect(found!.type).toBe("application");
+    expect(found!.subtype).toBe("pdf");
+
+    const nested = findBodyPart(structure, "1.2");
+    expect(nested).not.toBeNull();
+    expect(nested!.type).toBe("text");
+    expect(nested!.subtype).toBe("html");
+
+    expect(findBodyPart(structure, "99")).toBeNull();
+  });
+});
+
+describe("decodePartContent", () => {
+  it("decodes base64 content", () => {
+    const encoded = Buffer.from("Hello, World!").toString("base64");
+    const decoded = decodePartContent(encoded, "BASE64");
+    expect(decoded.toString()).toBe("Hello, World!");
+  });
+
+  it("handles base64 with whitespace", () => {
+    const raw = "SGVs\r\nbG8=";
+    const decoded = decodePartContent(raw, "BASE64");
+    expect(decoded.toString()).toBe("Hello");
+  });
+
+  it("decodes quoted-printable content", () => {
+    const decoded = decodePartContent("caf=C3=A9", "QUOTED-PRINTABLE");
+    expect(decoded.toString("binary")).toBe("caf\xC3\xA9");
+  });
+
+  it("passes through 7bit content", () => {
+    const decoded = decodePartContent("plain text", "7BIT");
+    expect(decoded.toString("binary")).toBe("plain text");
+  });
+});
+
+describe("decodeQuotedPrintable", () => {
+  it("removes soft line breaks", () => {
+    const decoded = decodeQuotedPrintable("Hello=\r\nWorld");
+    expect(decoded.toString("binary")).toBe("HelloWorld");
+  });
+
+  it("decodes hex sequences", () => {
+    const decoded = decodeQuotedPrintable("=48=65=6C=6C=6F");
+    expect(decoded.toString()).toBe("Hello");
+  });
+});
+
+describe("parseFetchResponse with BODYSTRUCTURE", () => {
+  it("parses BODYSTRUCTURE in FETCH response", () => {
+    const text = '(UID 42 BODYSTRUCTURE ("text" "plain" ("charset" "UTF-8") NIL NIL "7BIT" "500" "20"))';
+    const parsed = parseFetchResponse(text);
+    expect(parsed.uid).toBe(42);
+    expect(parsed.bodyStructure).toBeDefined();
+    expect(parsed.bodyStructure!.type).toBe("text");
+    expect(parsed.bodyStructure!.subtype).toBe("plain");
+  });
+
+  it("parses BODY[section] into bodyParts map", () => {
+    const content = "SGVsbG8="; // "Hello" in base64
+    const text = `(UID 42 BODY[2] {${content.length}}${content})`;
+    const parsed = parseFetchResponse(text);
+    expect(parsed.uid).toBe(42);
+    expect(parsed.bodyParts).toBeDefined();
+    expect(parsed.bodyParts!.get("2")).toBe(content);
+  });
+
+  it("still stores BODY[TEXT] in bodyText", () => {
+    const text = '(UID 42 BODY[TEXT] "Hello body")';
+    const parsed = parseFetchResponse(text);
+    expect(parsed.bodyText).toBe("Hello body");
+    expect(parsed.bodyParts).toBeUndefined();
   });
 });

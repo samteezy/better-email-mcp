@@ -32,11 +32,26 @@ export interface ParsedEnvelope {
   messageId: string;
 }
 
+export interface ParsedBodyPart {
+  partId: string;
+  type: string;
+  subtype: string;
+  parameters: Record<string, string>;
+  encoding: string;
+  size: number;
+  contentId: string | null;
+  disposition: string | null;
+  dispositionParams: Record<string, string>;
+  parts?: ParsedBodyPart[];
+}
+
 export interface ParsedFetch {
   uid?: number;
   flags?: string[];
   envelope?: ParsedEnvelope;
   bodyText?: string;
+  bodyStructure?: ParsedBodyPart;
+  bodyParts?: Map<string, string>;
 }
 
 // --- Response line parsing ---
@@ -224,28 +239,41 @@ export function parseFetchResponse(text: string): ParsedFetch {
       const { value, endIndex } = parseParenList(inner, i);
       result.envelope = mapEnvelopeList(value);
       i = endIndex;
+    } else if (keyword === "BODYSTRUCTURE") {
+      const { value, endIndex } = parseParenList(inner, i);
+      result.bodyStructure = parseBodyStructure(value);
+      i = endIndex;
     } else if (keyword.startsWith("BODY[")) {
-      // Body text: BODY[TEXT] or BODY[1] etc.
-      // Value follows as a literal or quoted string
+      // Extract section name from BODY[section]
+      const sectionMatch = keyword.match(/^BODY\[([^\]]*)\]$/);
+      const section = sectionMatch ? sectionMatch[1] : "";
+      const isPartSection = /^\d+(\.\d+)*$/.test(section);
+
+      // Parse the value (literal, quoted, or atom)
+      let bodyValue: string | undefined;
       if (inner[i] === '"') {
         const { value, endIndex } = parseQuotedString(inner, i);
-        result.bodyText = value;
+        bodyValue = value;
         i = endIndex;
       } else if (inner[i] === "{") {
-        // Literal: {N}\r\n<data> — in our usage, literals are pre-joined by the client
-        // so this appears as {N} followed by the data after client processing
         const braceEnd = inner.indexOf("}", i);
         if (braceEnd !== -1) {
           const size = parseInt(inner.substring(i + 1, braceEnd), 10);
-          // Data follows after the closing brace (client pre-processes \r\n)
           const dataStart = braceEnd + 1;
-          result.bodyText = inner.substring(dataStart, dataStart + size);
+          bodyValue = inner.substring(dataStart, dataStart + size);
           i = dataStart + size;
         }
       } else {
         const { value, endIndex } = parseAtom(inner, i);
-        result.bodyText = value === "NIL" ? undefined : value;
+        bodyValue = value === "NIL" ? undefined : value;
         i = endIndex;
+      }
+
+      if (isPartSection && bodyValue !== undefined) {
+        if (!result.bodyParts) result.bodyParts = new Map();
+        result.bodyParts.set(section, bodyValue);
+      } else {
+        result.bodyText = bodyValue;
       }
     } else {
       // Skip unknown data item value
@@ -361,6 +389,235 @@ export function parseListResponse(text: string): { flags: string[]; delimiter: s
   }
 
   return { flags: flags as string[], delimiter, name };
+}
+
+// --- BODYSTRUCTURE parsing ---
+
+/**
+ * Parses a BODYSTRUCTURE paren list into a structured tree.
+ *
+ * RFC 3501 §7.4.2:
+ * - Non-multipart body: (type subtype params bodyId description encoding size ...)
+ *   followed by optional extension data (md5, disposition, language, location).
+ * - Multipart body: ((part1)(part2)... subtype [params] [disposition] [language] [location])
+ *
+ * Part numbering: top-level parts are "1", "2", etc. Sub-parts within a
+ * multipart are "1.1", "1.2", etc. A non-multipart message has a single part "1".
+ */
+export function parseBodyStructure(
+  list: any[],
+  partId?: string
+): ParsedBodyPart {
+  // Multipart: first element is an array (a child part)
+  if (Array.isArray(list[0])) {
+    return parseMultipartStructure(list, partId);
+  }
+  return parseSinglePartStructure(list, partId ?? "1");
+}
+
+function parseMultipartStructure(
+  list: any[],
+  parentPartId?: string
+): ParsedBodyPart {
+  const parts: ParsedBodyPart[] = [];
+  let subtype = "mixed";
+  let extensionStart = 0;
+
+  // Collect child parts (arrays) until we hit a string (the subtype)
+  for (let idx = 0; idx < list.length; idx++) {
+    if (Array.isArray(list[idx])) {
+      const childNum = parts.length + 1;
+      const childId = parentPartId
+        ? `${parentPartId}.${childNum}`
+        : `${childNum}`;
+      parts.push(parseBodyStructure(list[idx], childId));
+    } else {
+      // First non-array element is the subtype
+      subtype =
+        typeof list[idx] === "string" ? list[idx].toLowerCase() : "mixed";
+      extensionStart = idx + 1;
+      break;
+    }
+  }
+
+  // Extension data after subtype: params, disposition, language, location
+  const params = parseParamPairs(list[extensionStart]);
+  const { disposition, dispositionParams } = parseDisposition(
+    list[extensionStart + 1]
+  );
+
+  return {
+    partId: parentPartId ?? "",
+    type: "multipart",
+    subtype,
+    parameters: params,
+    encoding: "7BIT",
+    size: 0,
+    contentId: null,
+    disposition,
+    dispositionParams,
+    parts,
+  };
+}
+
+function parseSinglePartStructure(
+  list: any[],
+  partId: string
+): ParsedBodyPart {
+  // (type subtype params bodyId description encoding size [lines]
+  //  [md5] [disposition] [language] [location])
+  const type =
+    typeof list[0] === "string" ? list[0].toLowerCase() : "application";
+  const subtype =
+    typeof list[1] === "string" ? list[1].toLowerCase() : "octet-stream";
+  const params = parseParamPairs(list[2]);
+  const contentId =
+    typeof list[3] === "string" ? list[3].replace(/[<>]/g, "") : null;
+  // list[4] = description (unused)
+  const encoding =
+    typeof list[5] === "string" ? list[5].toUpperCase() : "7BIT";
+  const size = typeof list[6] === "string" ? parseInt(list[6], 10) : 0;
+
+  // For text/* parts, line count is at index 7, pushing extension data forward
+  let extOffset = 7;
+  if (type === "text") extOffset = 8;
+  // For message/rfc822, envelope+body+lines occupy 7-9, pushing extension data to 10
+  if (type === "message" && subtype === "rfc822") extOffset = 10;
+
+  // Extension data: md5, disposition, language, location
+  // md5 is at extOffset, disposition at extOffset+1
+  const { disposition, dispositionParams } = parseDisposition(
+    list[extOffset + 1]
+  );
+
+  return {
+    partId,
+    type,
+    subtype,
+    parameters: params,
+    encoding,
+    size: isNaN(size) ? 0 : size,
+    contentId,
+    disposition,
+    dispositionParams,
+  };
+}
+
+/** Parse IMAP parameter pairs: ("key" "value" "key2" "value2") → Record */
+function parseParamPairs(data: any): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!Array.isArray(data)) return result;
+  for (let i = 0; i + 1 < data.length; i += 2) {
+    if (typeof data[i] === "string" && typeof data[i + 1] === "string") {
+      result[data[i].toLowerCase()] = decodeRfc2047(data[i + 1]);
+    }
+  }
+  return result;
+}
+
+/** Parse disposition: ("attachment" ("filename" "file.pdf")) or NIL */
+function parseDisposition(
+  data: any
+): { disposition: string | null; dispositionParams: Record<string, string> } {
+  if (!Array.isArray(data)) {
+    return { disposition: null, dispositionParams: {} };
+  }
+  const disposition =
+    typeof data[0] === "string" ? data[0].toLowerCase() : null;
+  const dispositionParams = parseParamPairs(data[1]);
+  return { disposition, dispositionParams };
+}
+
+/**
+ * Extracts attachment info from a parsed body structure tree.
+ * Returns non-inline attachments plus inline parts with a content-id (embedded images).
+ */
+export function flattenAttachments(
+  part: ParsedBodyPart
+): import("../types.js").AttachmentInfo[] {
+  const attachments: import("../types.js").AttachmentInfo[] = [];
+  collectAttachments(part, attachments);
+  return attachments;
+}
+
+function collectAttachments(
+  part: ParsedBodyPart,
+  out: import("../types.js").AttachmentInfo[]
+): void {
+  if (part.parts) {
+    for (const child of part.parts) {
+      collectAttachments(child, out);
+    }
+    return;
+  }
+
+  // Skip multipart containers and plain text/html body parts (unless explicitly attached)
+  if (part.type === "multipart") return;
+  if (
+    (part.type === "text" && (part.subtype === "plain" || part.subtype === "html")) &&
+    part.disposition !== "attachment"
+  ) {
+    return;
+  }
+
+  const filename =
+    part.dispositionParams.filename ||
+    part.parameters.name ||
+    `attachment-${part.partId}`;
+
+  out.push({
+    partId: part.partId,
+    filename,
+    mimeType: `${part.type}/${part.subtype}`,
+    size: part.size,
+    isInline: part.disposition === "inline" && part.contentId !== null,
+  });
+}
+
+/**
+ * Finds a specific part by ID in a body structure tree.
+ */
+export function findBodyPart(
+  root: ParsedBodyPart,
+  partId: string
+): ParsedBodyPart | null {
+  if (root.partId === partId) return root;
+  if (root.parts) {
+    for (const child of root.parts) {
+      const found = findBodyPart(child, partId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Decodes MIME part content based on its transfer encoding.
+ * Returns a Buffer of the decoded content.
+ */
+export function decodePartContent(data: string, encoding: string): Buffer {
+  switch (encoding.toUpperCase()) {
+    case "BASE64":
+      return Buffer.from(data.replace(/\s/g, ""), "base64");
+    case "QUOTED-PRINTABLE":
+      return decodeQuotedPrintable(data);
+    default:
+      // 7BIT, 8BIT, BINARY — treat as raw
+      return Buffer.from(data, "binary");
+  }
+}
+
+/**
+ * Decodes quoted-printable encoded content (RFC 2045).
+ * Soft line breaks (=\r\n) are removed, =XX sequences decoded.
+ */
+export function decodeQuotedPrintable(data: string): Buffer {
+  const cleaned = data.replace(/=\r?\n/g, "");
+  const decoded = cleaned.replace(
+    /=([0-9A-Fa-f]{2})/g,
+    (_m, hex: string) => String.fromCharCode(parseInt(hex, 16))
+  );
+  return Buffer.from(decoded, "binary");
 }
 
 // --- RFC 2047 encoded-word decoding ---

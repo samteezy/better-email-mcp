@@ -186,8 +186,9 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 |------|-------------|
 | `list_folders` | List all email folders/mailboxes |
 | `list_messages` | List recent messages with optional folder, limit, and offset |
-| `get_message` | Get a single message by ID, including full body |
+| `get_message` | Get a single message by ID, including full body and attachment metadata |
 | `search_messages` | Search messages by text query |
+| `get_attachment` | Download an email attachment by part ID (base64-encoded content) |
 | `send_message` | Send an email (JMAP, or IMAP with SMTP configured) |
 
 ### Calendar (CalDAV)

@@ -1,4 +1,5 @@
 import {
+  AttachmentContent,
   EmailBackend,
   EmailMessage,
   ListMessagesOptions,
@@ -11,6 +12,9 @@ import {
   parseSearchResponse,
   parseListResponse,
   ParsedFetch,
+  flattenAttachments,
+  findBodyPart,
+  decodePartContent,
 } from "../imap/parser.js";
 import { SmtpClient } from "../smtp/client.js";
 
@@ -160,7 +164,7 @@ export class ImapBackend implements EmailBackend {
 
     try {
       const fetchResponses = await client.command(
-        `UID FETCH ${uid} (UID FLAGS ENVELOPE BODY.PEEK[TEXT])`
+        `UID FETCH ${uid} (UID FLAGS ENVELOPE BODY.PEEK[TEXT] BODYSTRUCTURE)`
       );
 
       const messages = this.mapFetchResponses(fetchResponses, folder);
@@ -168,12 +172,20 @@ export class ImapBackend implements EmailBackend {
 
       const message = messages[0];
 
-      // Extract body text from FETCH response
+      // Extract body text and attachment metadata from FETCH response
       for (const resp of fetchResponses) {
         if (resp.type === "FETCH") {
           const parsed = parseFetchResponse(resp.text);
-          if (parsed.uid === uid && parsed.bodyText) {
-            message.body = parsed.bodyText;
+          if (parsed.uid === uid) {
+            if (parsed.bodyText) {
+              message.body = parsed.bodyText;
+            }
+            if (parsed.bodyStructure) {
+              const attachments = flattenAttachments(parsed.bodyStructure);
+              if (attachments.length > 0) {
+                message.attachments = attachments;
+              }
+            }
           }
         }
       }
@@ -182,6 +194,57 @@ export class ImapBackend implements EmailBackend {
     } catch {
       return null;
     }
+  }
+
+  async getAttachment(
+    messageId: string,
+    partId: string
+  ): Promise<AttachmentContent> {
+    if (!/^\d+(\.\d+)*$/.test(partId)) {
+      throw new Error(`Invalid part ID: ${partId}`);
+    }
+
+    const client = this.ensureConnected();
+    const { folder, uid } = decodeMessageId(messageId);
+    this.validateFolder(folder);
+
+    await client.command(`SELECT ${quoteImapString(folder)}`);
+
+    const fetchResponses = await client.command(
+      `UID FETCH ${uid} (BODYSTRUCTURE BODY.PEEK[${partId}])`
+    );
+
+    let structure: import("../imap/parser.js").ParsedBodyPart | undefined;
+    let rawContent: string | undefined;
+
+    for (const resp of fetchResponses) {
+      if (resp.type === "FETCH") {
+        const parsed = parseFetchResponse(resp.text);
+        if (parsed.uid === uid) {
+          structure = parsed.bodyStructure;
+          rawContent = parsed.bodyParts?.get(partId);
+        }
+      }
+    }
+
+    if (!rawContent) {
+      throw new Error(`Attachment part ${partId} not found`);
+    }
+
+    const part = structure ? findBodyPart(structure, partId) : null;
+    const encoding = part?.encoding ?? "BASE64";
+    const decoded = decodePartContent(rawContent, encoding);
+
+    return {
+      filename:
+        part?.dispositionParams?.filename ||
+        part?.parameters?.name ||
+        `attachment-${partId}`,
+      mimeType: part
+        ? `${part.type}/${part.subtype}`
+        : "application/octet-stream",
+      content: decoded.toString("base64"),
+    };
   }
 
   async searchMessages(options: SearchOptions): Promise<EmailMessage[]> {
