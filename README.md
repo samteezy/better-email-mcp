@@ -16,12 +16,17 @@ All tool responses use compact JSON (no pretty-printing). List and search tools 
 
 **Tool definition token cost** (schema tokens consumed per request, estimated at ~3.5 chars/token):
 
-| Configuration | Tools | Est. tokens |
-|---------------|-------|-------------|
-| Email only (IMAP or JMAP) | 6 | ~380 |
-| Email + Calendar + Tasks | 16 | ~943 |
-| Email + Contacts (JMAP) | 10 | ~585 |
-| Full suite (JMAP + CalDAV + Contacts) | 20 | ~1,148 |
+Tools are only registered when the matching backend is configured. Combine rows to estimate your setup:
+
+| Protocol | Tools | Est. tokens |
+|----------|-------|-------------|
+| IMAP | 6 | ~373 |
+| JMAP (`EMAIL_FORMAT=html` adds `htmlBody`) | 6 | ~380 |
+| CalDAV — calendar | 4 | ~192 |
+| CalDAV — tasks | 6 | ~371 |
+| CardDAV | 4 | ~206 |
+
+**Example totals:** IMAP only ~373 · IMAP + CalDAV + Tasks ~935 · Full suite (JMAP + CalDAV + Tasks + CardDAV) ~1,148
 
 Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to trim tools you don't need.
 

@@ -72,7 +72,7 @@ function createBackend(): EmailBackend {
 
 const server = new McpServer({
   name: "better-email-mcp",
-  version: "0.6.1",
+  version: "0.7.0",
 });
 
 const backend = createBackend();
