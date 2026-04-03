@@ -36,6 +36,7 @@ CalDAV, CardDAV, and tasks activate alongside whichever email backend is configu
 | Watch tests | `npm run test:watch` |
 | Lint | `npm run lint` |
 | Type-check only | `npm run typecheck` |
+| Count tool tokens | `npm run count-tokens` |
 
 ## Architecture
 
@@ -64,3 +65,7 @@ Version lives in two places — `package.json` and the `McpServer` constructor i
 - **Minor bump** (0.4.0 → 0.5.0): new features, new tools, new capabilities.
 - **Patch bump** (0.4.0 → 0.4.1): bug fixes, refactors, documentation-only changes.
 - If unclear whether a change is a feature or a fix, ask the user before bumping.
+
+## Token cost table
+
+`README.md` has a "Tool definition token cost" table in the Token efficiency section. Keep it updated when tools are added, removed, or renamed. Run `npm run count-tokens` to regenerate the numbers — it builds the project, loads the actual tool registrations with mock backends, and prints per-tool and per-configuration estimates (~3.5 chars/token heuristic for BPE on JSON Schema). The script lives at `scripts/count-tool-tokens.js`.

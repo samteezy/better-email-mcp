@@ -4,6 +4,7 @@ dist/
 *.d.ts
 *.js.map
 !jest.config.js
+!scripts/*.js
 
 .env
 .env.*

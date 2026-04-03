@@ -233,3 +233,14 @@ All tool responses use compact JSON (no pretty-printing). List and search tools 
 | Contact list/search | `id`, `href`, `name`, `emails`, `phones` | `organization`, `title`, `address`, `notes`, `addressBook` |
 
 The `folder`, `calendar`, and `addressBook` fields are automatically included in lean responses when no filter is applied (listing across all), and omitted when filtering by a specific one (since it's redundant).
+
+**Tool definition token cost** (schema tokens consumed per request, estimated at ~3.5 chars/token):
+
+| Configuration | Tools | Est. tokens |
+|---------------|-------|-------------|
+| Email only (IMAP or JMAP) | 5 | ~293 |
+| Email + Calendar + Tasks | 15 | ~855 |
+| Email + Contacts (JMAP) | 9 | ~498 |
+| Full suite (JMAP + CalDAV + Contacts) | 19 | ~1,061 |
+
+Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to trim tools you don't need.
