@@ -41,6 +41,7 @@ export class ImapBackend implements EmailBackend {
   private folderList: string[] = [];
   private smtpConfig: SmtpConfig | undefined;
   private smtpClient: SmtpClient | null = null;
+  private smtpDomain: string | undefined;
 
   sendMessage?: (options: SendMessageOptions) => Promise<{ id: string }>;
 
@@ -90,12 +91,12 @@ export class ImapBackend implements EmailBackend {
       });
 
       const fromAddr = smtp.from ?? smtp.user;
-      const domain = fromAddr.split("@")[1] ?? "localhost";
-      await this.smtpClient.ehlo(domain);
+      this.smtpDomain = fromAddr.split("@")[1] ?? "localhost";
+      await this.smtpClient.ehlo(this.smtpDomain);
 
       if (smtp.tls && !useImplicitTls) {
         await this.smtpClient.startTls();
-        await this.smtpClient.ehlo(domain);
+        await this.smtpClient.ehlo(this.smtpDomain!);
       }
 
       await this.smtpClient.authPlain(smtp.user, smtp.password);
@@ -291,8 +292,7 @@ export class ImapBackend implements EmailBackend {
     }
 
     const from = this.smtpConfig.from ?? this.smtpConfig.user;
-    const domain = from.split("@")[1] ?? "localhost";
-    const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@${domain}>`;
+    const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@${this.smtpDomain}>`;
     const date = new Date().toUTCString();
 
     const sanitizedTo = options.to.map((a) => this.sanitizeHeader(a));
@@ -394,7 +394,8 @@ export class ImapBackend implements EmailBackend {
       }
     }
 
-    // Sort by UID descending (newest first)
+    // Sort by UID descending (newest first) — IMAP FETCH response
+    // order is not guaranteed to match the requested UID order
     messages.sort((a, b) => {
       const uidA = decodeMessageId(a.id).uid;
       const uidB = decodeMessageId(b.id).uid;

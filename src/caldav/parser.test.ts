@@ -5,9 +5,6 @@ import {
   icalDateToISO,
   isoToICalDate,
   escapeText,
-  unescapeText,
-  ParsedVEvent,
-  ParsedVTodo,
 } from "../caldav/parser";
 
 // ---------------------------------------------------------------------------

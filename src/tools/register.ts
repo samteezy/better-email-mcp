@@ -1,4 +1,4 @@
-import { writeFile, mkdir, access } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve, relative, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -8,6 +8,7 @@ import {
   errorResult,
   jsonResult,
   parseDisabledTools,
+  toLean,
   toolEnabled,
 } from "./helpers.js";
 
@@ -31,11 +32,9 @@ function toLeanMessages(
   messages: EmailMessage[],
   opts: { includeFolder: boolean }
 ) {
-  return messages.map(({ id, from, subject, date, snippet, folder }) => {
-    const lean: Record<string, unknown> = { id, from, subject, date, snippet };
-    if (opts.includeFolder) lean.folder = folder;
-    return lean;
-  });
+  const always: (keyof EmailMessage)[] = ["id", "from", "subject", "date", "snippet"];
+  if (opts.includeFolder) always.push("folder");
+  return toLean(messages, always);
 }
 
 function parseEmailFormat(): "plain" | "html" {

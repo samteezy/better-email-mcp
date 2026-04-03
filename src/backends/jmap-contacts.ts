@@ -5,7 +5,15 @@ import {
   ListContactsOptions,
   SearchContactsOptions,
 } from "../types.js";
-import { JmapBackend, JmapSession, JmapError } from "./jmap.js";
+import { JmapBackend, JmapSession } from "./jmap.js";
+
+// JSContact types
+type JSContactMap = Record<string, Record<string, unknown>> | undefined | null;
+
+interface JSContactNameComponent {
+  value?: string;
+  sortOrder?: number;
+}
 
 const USING = [
   "urn:ietf:params:jmap:core",
@@ -28,16 +36,26 @@ const CONTACT_FULL_PROPERTIES = [
   "notes",
 ];
 
+interface JmapContactCardData {
+  id: string;
+  name?: { full?: string; components?: JSContactNameComponent[] } | null;
+  emails?: JSContactMap;
+  phones?: JSContactMap;
+  organizations?: JSContactMap;
+  titles?: JSContactMap;
+  addresses?: JSContactMap;
+  notes?: JSContactMap;
+  addressBookIds?: Record<string, boolean>;
+}
+
 export class JmapContactsBackend implements ContactsBackend {
   private jmapBackend: JmapBackend;
-  private token: string;
   private session!: JmapSession;
   private addressBooks: AddressBookInfo[] = [];
   private addressBookIdToName = new Map<string, string>();
 
-  constructor(jmapBackend: JmapBackend, token: string) {
+  constructor(jmapBackend: JmapBackend) {
     this.jmapBackend = jmapBackend;
-    this.token = token;
   }
 
   async connect(): Promise<void> {
@@ -116,7 +134,7 @@ export class JmapContactsBackend implements ContactsBackend {
     ]);
 
     const getResponse = this.findResponse(responses, "ContactCard/get");
-    return getResponse.list.map((raw: any) => this.mapContactCard(raw, false));
+    return getResponse.list.map((raw: JmapContactCardData) => this.mapContactCard(raw, false));
   }
 
   async getContact(href: string): Promise<Contact | null> {
@@ -176,12 +194,12 @@ export class JmapContactsBackend implements ContactsBackend {
     ]);
 
     const getResponse = this.findResponse(responses, "ContactCard/get");
-    return getResponse.list.map((raw: any) => this.mapContactCard(raw, false));
+    return getResponse.list.map((raw: JmapContactCardData) => this.mapContactCard(raw, false));
   }
 
   // --- Private helpers ---
 
-  private mapContactCard(raw: any, full: boolean): Contact {
+  private mapContactCard(raw: JmapContactCardData, full: boolean): Contact {
     const addressBookId = Object.keys(raw.addressBookIds ?? {})[0];
     const addressBook = addressBookId
       ? this.addressBookIdToName.get(addressBookId) ?? addressBookId
@@ -224,63 +242,27 @@ export class JmapContactsBackend implements ContactsBackend {
     return undefined;
   }
 
-  private async jmapRequest(methodCalls: any[][]): Promise<any[][]> {
-    const res = await fetch(this.session.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.token}`,
-      },
-      body: JSON.stringify({
-        using: USING,
-        methodCalls,
-      }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`JMAP request failed: ${res.status} ${res.statusText}`);
-    }
-
-    const data = await res.json();
-    const methodResponses: any[][] = data.methodResponses;
-
-    for (const response of methodResponses) {
-      if (response[0] === "error") {
-        throw new JmapError(
-          response[1].type ?? "unknown",
-          response[1].description ?? "Unknown JMAP error"
-        );
-      }
-    }
-
-    return methodResponses;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async jmapRequest(methodCalls: [string, Record<string, unknown>, string][]): Promise<any[][]> {
+    return this.jmapBackend.jmapRequest(methodCalls, USING);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private findResponse(responses: any[][], methodName: string): any {
-    for (const response of responses) {
-      if (response[0] === methodName) {
-        return response[1];
-      }
-    }
-    throw new Error(`Expected ${methodName} response not found`);
+    return this.jmapBackend.findResponse(responses as [string, Record<string, unknown>, string][], methodName);
   }
 }
 
 // --- JSContact mapping helpers ---
 
-/**
- * Extract display name from a JSContact Name object.
- * Prefers `full`, falls back to assembling from components.
- */
-function extractName(name: any): string {
+function extractName(name: { full?: string; components?: JSContactNameComponent[] } | undefined | null): string {
   if (!name) return "";
   if (name.full) return name.full;
 
-  // Assemble from components
   if (name.components && Array.isArray(name.components)) {
     const parts = name.components
-      .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-      .map((c: any) => c.value)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .map((c) => c.value)
       .filter(Boolean);
     return parts.join(" ");
   }
@@ -288,71 +270,53 @@ function extractName(name: any): string {
   return "";
 }
 
-/**
- * Extract values from a JSContact Id-keyed map (e.g., emails, phones).
- * Each entry has a property like "address" for emails or "phone" for phones.
- */
-function extractMapValues(map: any, valueKey: string): string[] {
+function extractMapValues(map: JSContactMap, valueKey: string): string[] {
   if (!map || typeof map !== "object") return [];
   return Object.values(map)
-    .map((entry: any) => entry[valueKey])
-    .filter(Boolean);
+    .map((entry) => entry[valueKey] as string | undefined)
+    .filter(Boolean) as string[];
 }
 
-/**
- * Extract the first organization name from JSContact organizations map.
- */
-function extractFirstOrganization(orgs: any): string | undefined {
+function extractFirstOrganization(orgs: JSContactMap): string | undefined {
   if (!orgs || typeof orgs !== "object") return undefined;
-  const first = Object.values(orgs)[0] as any;
-  return first?.name || undefined;
+  const first = Object.values(orgs)[0];
+  return (first?.name as string) || undefined;
 }
 
-/**
- * Extract the first title from JSContact titles map.
- */
-function extractFirstTitle(titles: any): string | undefined {
+function extractFirstTitle(titles: JSContactMap): string | undefined {
   if (!titles || typeof titles !== "object") return undefined;
-  const first = Object.values(titles)[0] as any;
-  return first?.name || undefined;
+  const first = Object.values(titles)[0];
+  return (first?.name as string) || undefined;
 }
 
-/**
- * Format the first address from JSContact addresses map.
- */
-function extractFirstAddress(addresses: any): string | undefined {
+function extractFirstAddress(addresses: JSContactMap): string | undefined {
   if (!addresses || typeof addresses !== "object") return undefined;
-  const first = Object.values(addresses)[0] as any;
+  const first = Object.values(addresses)[0];
   if (!first) return undefined;
 
-  // JSContact addresses have components or full
-  if (first.full) return first.full;
+  if (first.full) return first.full as string;
 
   if (first.components && Array.isArray(first.components)) {
-    const parts = first.components
-      .map((c: any) => c.value)
+    const parts = (first.components as JSContactNameComponent[])
+      .map((c) => c.value)
       .filter(Boolean);
     return parts.join(", ");
   }
 
-  // Fallback: assemble from legacy-style fields
   const parts = [
     first.street,
     first.locality,
     first.region,
     first.postcode,
     first.country,
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
   return parts.length > 0 ? parts.join(", ") : undefined;
 }
 
-/**
- * Extract notes text from JSContact notes map.
- */
-function extractNotes(notes: any): string | undefined {
+function extractNotes(notes: JSContactMap): string | undefined {
   if (!notes || typeof notes !== "object") return undefined;
   const parts = Object.values(notes)
-    .map((entry: any) => entry.note)
-    .filter(Boolean);
+    .map((entry) => entry.note as string | undefined)
+    .filter(Boolean) as string[];
   return parts.length > 0 ? parts.join("\n") : undefined;
 }

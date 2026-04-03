@@ -41,6 +41,40 @@ export class JmapError extends Error {
   }
 }
 
+// JMAP response types
+type JmapMethodCall = [string, Record<string, unknown>, string];
+type JmapMethodResponse = [string, Record<string, unknown>, string];
+
+interface JmapEmailAddress {
+  name?: string;
+  email: string;
+}
+
+interface JmapBodyPart {
+  partId?: string;
+  blobId?: string;
+  type?: string;
+  name?: string;
+  size?: number;
+  cid?: string;
+  disposition?: string;
+}
+
+interface JmapEmailData {
+  id: string;
+  subject?: string;
+  from?: JmapEmailAddress[];
+  to?: JmapEmailAddress[];
+  cc?: JmapEmailAddress[];
+  receivedAt?: string;
+  preview?: string;
+  keywords?: Record<string, boolean>;
+  mailboxIds?: Record<string, boolean>;
+  textBody?: JmapBodyPart[];
+  bodyValues?: Record<string, { value: string }>;
+  attachments?: JmapBodyPart[];
+}
+
 const DEFAULT_SESSION_URL = "https://api.fastmail.com/.well-known/jmap";
 const USING = [
   "urn:ietf:params:jmap:core",
@@ -80,10 +114,6 @@ export class JmapBackend implements EmailBackend {
 
   getSession(): JmapSession | null {
     return this.session;
-  }
-
-  getToken(): string {
-    return this.config.token;
   }
 
   async connect(): Promise<void> {
@@ -203,7 +233,7 @@ export class JmapBackend implements EmailBackend {
     ]);
 
     const emailResponse = this.findResponse(responses, "Email/get");
-    return emailResponse.list.map((raw: any) => this.mapJmapEmail(raw));
+    return emailResponse.list.map((raw: JmapEmailData) => this.mapJmapEmail(raw));
   }
 
   async getMessage(id: string): Promise<EmailMessage | null> {
@@ -239,22 +269,23 @@ export class JmapBackend implements EmailBackend {
       return null;
     }
 
-    const raw = emailResponse.list[0];
+    const raw: JmapEmailData = emailResponse.list[0];
     const message = this.mapJmapEmail(raw);
 
     // Assemble body from textBody parts
-    const textParts: any[] = raw.textBody ?? [];
+    const textParts: JmapBodyPart[] = raw.textBody ?? [];
     const bodyText = textParts
-      .map((part: any) => raw.bodyValues?.[part.partId]?.value ?? "")
+      .map((part) => raw.bodyValues?.[part.partId ?? ""]?.value ?? "")
       .join("\n");
     if (bodyText) {
       message.body = bodyText;
     }
 
     // Map server-computed attachments (RFC 8621 §4.1.4)
-    if (raw.attachments?.length > 0) {
-      message.attachments = raw.attachments.map((part: any) => ({
-        partId: part.blobId,
+    const rawAttachments = raw.attachments ?? [];
+    if (rawAttachments.length > 0) {
+      message.attachments = rawAttachments.map((part) => ({
+        partId: part.blobId ?? "",
         filename: part.name ?? `attachment-${part.partId ?? "unknown"}`,
         mimeType: part.type || "application/octet-stream",
         size: part.size ?? 0,
@@ -302,13 +333,13 @@ export class JmapBackend implements EmailBackend {
       throw new Error(`Message not found: ${messageId}`);
     }
 
-    const attachments: any[] = emailResponse.list[0].attachments ?? [];
-    const part = attachments.find((p: any) => p.blobId === partId);
+    const attachments: JmapBodyPart[] = emailResponse.list[0].attachments ?? [];
+    const part = attachments.find((p) => p.blobId === partId);
     if (!part) {
       throw new Error(`Attachment part ${partId} not found`);
     }
 
-    if (maxSize && part.size > maxSize) {
+    if (maxSize && (part.size ?? 0) > maxSize) {
       throw new Error(
         `Attachment too large: ${part.size} bytes (max ${maxSize})`
       );
@@ -378,7 +409,7 @@ export class JmapBackend implements EmailBackend {
     ]);
 
     const emailResponse = this.findResponse(responses, "Email/get");
-    return emailResponse.list.map((raw: any) => this.mapJmapEmail(raw));
+    return emailResponse.list.map((raw: JmapEmailData) => this.mapJmapEmail(raw));
   }
 
   async sendMessage(options: SendMessageOptions): Promise<{ id: string }> {
@@ -472,7 +503,10 @@ export class JmapBackend implements EmailBackend {
     return this.session;
   }
 
-  private async jmapRequest(methodCalls: any[][]): Promise<any[][]> {
+  async jmapRequest(
+    methodCalls: JmapMethodCall[],
+    using: string[] = USING
+  ): Promise<JmapMethodResponse[]> {
     const session = this.ensureConnected();
 
     const res = await fetch(session.apiUrl, {
@@ -482,7 +516,7 @@ export class JmapBackend implements EmailBackend {
         Authorization: `Bearer ${this.config.token}`,
       },
       body: JSON.stringify({
-        using: USING,
+        using,
         methodCalls,
       }),
     });
@@ -492,14 +526,15 @@ export class JmapBackend implements EmailBackend {
     }
 
     const data = await res.json();
-    const methodResponses: any[][] = data.methodResponses;
+    const methodResponses: JmapMethodResponse[] = data.methodResponses;
 
     // Check for method-level errors
     for (const response of methodResponses) {
       if (response[0] === "error") {
+        const err = response[1] as { type?: string; description?: string };
         throw new JmapError(
-          response[1].type ?? "unknown",
-          response[1].description ?? "Unknown JMAP error"
+          err.type ?? "unknown",
+          err.description ?? "Unknown JMAP error"
         );
       }
     }
@@ -507,7 +542,8 @@ export class JmapBackend implements EmailBackend {
     return methodResponses;
   }
 
-  private findResponse(responses: any[][], methodName: string): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  findResponse(responses: JmapMethodResponse[], methodName: string): any {
     for (const response of responses) {
       if (response[0] === methodName) {
         return response[1];
@@ -532,7 +568,7 @@ export class JmapBackend implements EmailBackend {
   }
 
 
-  private mapJmapEmail(raw: any): EmailMessage {
+  private mapJmapEmail(raw: JmapEmailData): EmailMessage {
     const mailboxId = Object.keys(raw.mailboxIds ?? {})[0];
     const folder = mailboxId
       ? this.mailboxCache.get(mailboxId) ?? mailboxId
@@ -542,14 +578,14 @@ export class JmapBackend implements EmailBackend {
       id: raw.id,
       subject: raw.subject ?? "",
       from: raw.from?.[0]?.email ?? raw.from?.[0]?.name ?? "",
-      to: (raw.to ?? []).map((a: any) => a.email),
+      to: (raw.to ?? []).map((a) => a.email),
       date: raw.receivedAt ?? "",
       snippet: raw.preview ?? "",
       isRead: raw.keywords?.$seen === true,
       folder,
     };
 
-    const cc = (raw.cc ?? []).map((a: any) => a.email);
+    const cc = (raw.cc ?? []).map((a) => a.email);
     if (cc.length > 0) {
       message.cc = cc;
     }

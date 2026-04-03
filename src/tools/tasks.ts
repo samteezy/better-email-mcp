@@ -5,6 +5,7 @@ import {
   errorResult,
   jsonResult,
   parseDisabledTools,
+  toLean,
   toolEnabled,
 } from "./helpers.js";
 
@@ -12,14 +13,9 @@ function toLeanTasks(
   tasks: TaskInfo[],
   opts: { includeCalendar: boolean }
 ) {
-  return tasks.map(({ id, href, title, status, due, priority, calendar }) => {
-    const lean: Record<string, unknown> = { id, href, title };
-    if (status) lean.status = status;
-    if (due) lean.due = due;
-    if (priority !== undefined) lean.priority = priority;
-    if (opts.includeCalendar) lean.calendar = calendar;
-    return lean;
-  });
+  const always: (keyof TaskInfo)[] = ["id", "href", "title"];
+  if (opts.includeCalendar) always.push("calendar");
+  return toLean(tasks, always, ["status", "due", "priority"]);
 }
 
 export function registerTaskTools(

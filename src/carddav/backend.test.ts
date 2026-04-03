@@ -1,5 +1,4 @@
 import { CardDavBackend, CardDavConfig } from "./backend";
-import { WebDavClient } from "../webdav/client";
 import { DavResponseEntry } from "../webdav/xml";
 
 // --- Mock WebDavClient ---

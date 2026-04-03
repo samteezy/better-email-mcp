@@ -5,6 +5,7 @@ import {
   errorResult,
   jsonResult,
   parseDisabledTools,
+  toLean,
   toolEnabled,
 } from "./helpers.js";
 
@@ -12,13 +13,9 @@ function toLeanContacts(
   contacts: Contact[],
   opts: { includeAddressBook: boolean }
 ) {
-  return contacts.map(({ id, href, name, emails, phones, addressBook }) => {
-    const lean: Record<string, unknown> = { id, href, name };
-    if (emails && emails.length > 0) lean.emails = emails;
-    if (phones && phones.length > 0) lean.phones = phones;
-    if (opts.includeAddressBook) lean.addressBook = addressBook;
-    return lean;
-  });
+  const always: (keyof Contact)[] = ["id", "href", "name"];
+  if (opts.includeAddressBook) always.push("addressBook");
+  return toLean(contacts, always, ["emails", "phones"]);
 }
 
 export function registerContactTools(

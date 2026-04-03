@@ -5,6 +5,7 @@ import {
   errorResult,
   jsonResult,
   parseDisabledTools,
+  toLean,
   toolEnabled,
 } from "./helpers.js";
 
@@ -12,12 +13,9 @@ function toLeanEvents(
   events: CalendarEvent[],
   opts: { includeCalendar: boolean }
 ) {
-  return events.map(({ id, href, title, start, end, location, calendar, allDay }) => {
-    const lean: Record<string, unknown> = { id, href, title, start, end, allDay };
-    if (location) lean.location = location;
-    if (opts.includeCalendar) lean.calendar = calendar;
-    return lean;
-  });
+  const always: (keyof CalendarEvent)[] = ["id", "href", "title", "start", "end", "allDay"];
+  if (opts.includeCalendar) always.push("calendar");
+  return toLean(events, always, ["location"]);
 }
 
 export function registerCalendarTools(

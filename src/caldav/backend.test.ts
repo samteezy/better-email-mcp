@@ -627,7 +627,7 @@ END:VCALENDAR`;
           + "\nPERCENT-COMPLETE:100\nCOMPLETED:20250415T120000Z",
       );
 
-      const task = await backend.completeTask("/calendars/user/personal/todo1.ics");
+      await backend.completeTask("/calendars/user/personal/todo1.ics");
 
       expect(mockClient.put).toHaveBeenCalledTimes(1);
       const putArgs = (mockClient.put as jest.Mock).mock.calls[0];

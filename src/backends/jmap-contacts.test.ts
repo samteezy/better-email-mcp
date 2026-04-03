@@ -18,9 +18,24 @@ function makeBackend(): JmapContactsBackend {
       apiUrl: "https://api.example.com/jmap",
       accountId: "account-1",
     }),
+    jmapRequest: async (methodCalls: any[][], _using?: string[]) => {
+      const res = await fetch("https://api.example.com/jmap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ methodCalls }),
+      });
+      const data = await res.json();
+      return data.methodResponses;
+    },
+    findResponse: (responses: any[][], methodName: string) => {
+      for (const response of responses) {
+        if (response[0] === methodName) return response[1];
+      }
+      throw new Error(`Expected ${methodName} response not found`);
+    },
   } as unknown as JmapBackend;
 
-  return new JmapContactsBackend(fakeJmapBackend, "test-token");
+  return new JmapContactsBackend(fakeJmapBackend);
 }
 
 function mockJmapResponse(...methodResponses: any[]) {

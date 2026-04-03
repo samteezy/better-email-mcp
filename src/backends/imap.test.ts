@@ -1,5 +1,4 @@
 import { ImapBackend, encodeMessageId, decodeMessageId } from "./imap";
-import { ImapClient } from "../imap/client";
 
 // --- Mock ImapClient ---
 

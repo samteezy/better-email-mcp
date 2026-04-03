@@ -1,4 +1,4 @@
-import { parseVCards, ParsedVCard } from '../carddav/parser';
+import { parseVCards } from '../carddav/parser';
 
 describe('vCard parser', () => {
   it('parses basic vCard with fn, uid, email, and phone', () => {

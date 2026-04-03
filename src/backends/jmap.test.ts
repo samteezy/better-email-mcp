@@ -162,7 +162,7 @@ describe("JmapBackend", () => {
 
   describe("listMessages()", () => {
     it("returns mapped EmailMessage objects", async () => {
-      const { calls } = setupConnectedBackend();
+      setupConnectedBackend();
       const backend = new JmapBackend({ token: "test-token" });
       await backend.connect();
 

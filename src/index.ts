@@ -72,7 +72,7 @@ function createBackend(): EmailBackend {
 
 const server = new McpServer({
   name: "better-email-mcp",
-  version: "0.7.0",
+  version: "0.6.2",
 });
 
 const backend = createBackend();
@@ -115,7 +115,7 @@ if (process.env.CARDDAV_URL) {
   registerContactTools(server, contactsBackend);
 } else if (backend instanceof JmapBackend) {
   // JMAP contacts activate automatically — no extra config needed
-  contactsBackend = new JmapContactsBackend(backend, backend.getToken());
+  contactsBackend = new JmapContactsBackend(backend);
   registerContactTools(server, contactsBackend);
 }
 

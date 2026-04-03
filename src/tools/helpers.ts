@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 export type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
@@ -24,4 +22,22 @@ export function parseDisabledTools(): Set<string> {
 
 export function toolEnabled(name: string, disabled: Set<string>): boolean {
   return !disabled.has(name.toLowerCase());
+}
+
+export function toLean<T>(
+  items: T[],
+  alwaysKeys: (keyof T)[],
+  truthyKeys: (keyof T)[] = []
+): Record<string, unknown>[] {
+  return items.map((item) => {
+    const lean: Record<string, unknown> = {};
+    for (const k of alwaysKeys) lean[k as string] = item[k];
+    for (const k of truthyKeys) {
+      const v = item[k];
+      if (v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0)) {
+        lean[k as string] = v;
+      }
+    }
+    return lean;
+  });
 }
