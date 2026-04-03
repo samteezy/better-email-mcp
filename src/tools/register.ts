@@ -17,7 +17,7 @@ const ATTACHMENT_DIR = resolve(
   process.env.ATTACHMENT_DIR || join(homedir(), "Downloads")
 );
 
-function validateSavePath(saveTo: string): string {
+export function validateSavePath(saveTo: string): string {
   const resolved = resolve(saveTo);
   const rel = relative(ATTACHMENT_DIR, resolved);
   if (rel.startsWith("..") || resolve(ATTACHMENT_DIR, rel) !== resolved) {
@@ -28,7 +28,7 @@ function validateSavePath(saveTo: string): string {
   return resolved;
 }
 
-function toLeanMessages(
+export function toLeanMessages(
   messages: EmailMessage[],
   opts: { includeFolder: boolean }
 ) {
@@ -37,7 +37,7 @@ function toLeanMessages(
   return toLean(messages, always);
 }
 
-function parseEmailFormat(): "plain" | "html" {
+export function parseEmailFormat(): "plain" | "html" {
   const raw = (process.env.EMAIL_FORMAT ?? "plain").trim().toLowerCase();
   if (raw === "html") return "html";
   return "plain";
