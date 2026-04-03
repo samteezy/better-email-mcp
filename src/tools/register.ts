@@ -1,5 +1,6 @@
-import { writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { writeFile, mkdir, access } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, resolve, relative, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { EmailBackend, EmailMessage } from "../types.js";
@@ -11,6 +12,20 @@ import {
 } from "./helpers.js";
 
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 MB
+const ATTACHMENT_DIR = resolve(
+  process.env.ATTACHMENT_DIR || join(homedir(), "Downloads")
+);
+
+function validateSavePath(saveTo: string): string {
+  const resolved = resolve(saveTo);
+  const rel = relative(ATTACHMENT_DIR, resolved);
+  if (rel.startsWith("..") || resolve(ATTACHMENT_DIR, rel) !== resolved) {
+    throw new Error(
+      `saveTo must be within ${ATTACHMENT_DIR} (set ATTACHMENT_DIR to change)`
+    );
+  }
+  return resolved;
+}
 
 function toLeanMessages(
   messages: EmailMessage[],
@@ -207,19 +222,20 @@ export function registerEmailTools(
           .string()
           .optional()
           .describe(
-            "File path to save attachment to disk instead of returning base64 content"
+            "File path to save attachment to disk instead of returning base64 content. Must be within ATTACHMENT_DIR (defaults to ~/Downloads)"
           ),
       },
       async ({ id, partId, saveTo }) => {
         try {
           const result = await getAttachmentFn(id, partId, MAX_ATTACHMENT_SIZE);
           if (saveTo) {
+            const safePath = validateSavePath(saveTo);
             const buffer = Buffer.from(result.content, "base64");
-            await mkdir(dirname(saveTo), { recursive: true });
-            await writeFile(saveTo, buffer);
+            await mkdir(dirname(safePath), { recursive: true });
+            await writeFile(safePath, buffer, { flag: "wx" });
             return jsonResult({
               saved: true,
-              path: saveTo,
+              path: safePath,
               filename: result.filename,
               mimeType: result.mimeType,
               size: buffer.length,

@@ -9,6 +9,33 @@ An MCP server that gives LLM tools access to your email, calendar, tasks, and co
 - **You control what the LLM can do.** Disable any tool with a single environment variable — enforce read-only access, hide search, or strip it down to just what you need. Less tool clutter means better LLM performance.
 - **Token-efficient.** List and search responses return only essential fields by default. Pass `verbose: true` for full details when needed.
 
+
+### Token efficiency
+
+All tool responses use compact JSON (no pretty-printing). List and search tools (`list_messages`, `search_messages`, `list_events`, `search_events`, `list_tasks`, `search_tasks`, `list_contacts`, `search_contacts`) return a lean field set by default — just enough to identify and triage each item. Pass `verbose: true` to get the full response with all fields.
+
+**Tool definition token cost** (schema tokens consumed per request, estimated at ~3.5 chars/token):
+
+| Configuration | Tools | Est. tokens |
+|---------------|-------|-------------|
+| Email only (IMAP or JMAP) | 6 | ~380 |
+| Email + Calendar + Tasks | 16 | ~943 |
+| Email + Contacts (JMAP) | 10 | ~585 |
+| Full suite (JMAP + CalDAV + Contacts) | 20 | ~1,148 |
+
+Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to trim tools you don't need.
+
+**Default fields by tool type:**
+
+| Tool type | Default fields | Additional with `verbose: true` |
+|-----------|---------------|--------------------------------|
+| Email list/search | `id`, `from`, `subject`, `date`, `snippet` | `to`, `cc`, `isRead`, `folder` |
+| Calendar list/search | `id`, `href`, `title`, `start`, `end`, `location`, `allDay` | `description`, `organizer`, `attendees`, `status`, `recurrence`, `calendar` |
+| Task list/search | `id`, `href`, `title`, `status`, `due`, `priority` | `description`, `categories`, `start`, `completed`, `percentComplete`, `recurrence`, `calendar` |
+| Contact list/search | `id`, `href`, `name`, `emails`, `phones` | `organization`, `title`, `address`, `notes`, `addressBook` |
+
+The `folder`, `calendar`, and `addressBook` fields are automatically included in lean responses when no filter is applied (listing across all), and omitted when filtering by a specific one (since it's redundant).
+
 ## Setup
 
 Install and run directly with npx — no clone needed:
@@ -112,6 +139,14 @@ DISABLED_TOOLS=send_message,search_messages
 ```
 
 This is useful for enforcing read-only access or reducing context for the LLM. When using `CALDAV_DEFAULT_CALENDAR` or `CARDDAV_DEFAULT_ADDRESS_BOOK`, you can also disable `list_calendars` or `list_address_books` since the LLM no longer needs to discover them.
+
+### Attachment downloads
+
+The `get_attachment` tool supports a `saveTo` parameter that writes the file to disk instead of returning base64 content. For security, `saveTo` paths are restricted to a base directory:
+
+```bash
+ATTACHMENT_DIR=~/Downloads  # default; set to change the allowed directory
+```
 
 ## Usage with MCP clients
 
@@ -219,29 +254,3 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 | `list_contacts` | List contacts with optional address book filter and limit |
 | `get_contact` | Get a single contact by href, including full details |
 | `search_contacts` | Search contacts by name, email, phone, or organization |
-
-## Token efficiency
-
-All tool responses use compact JSON (no pretty-printing). List and search tools (`list_messages`, `search_messages`, `list_events`, `search_events`, `list_tasks`, `search_tasks`, `list_contacts`, `search_contacts`) return a lean field set by default — just enough to identify and triage each item. Pass `verbose: true` to get the full response with all fields.
-
-**Default fields by tool type:**
-
-| Tool type | Default fields | Additional with `verbose: true` |
-|-----------|---------------|--------------------------------|
-| Email list/search | `id`, `from`, `subject`, `date`, `snippet` | `to`, `cc`, `isRead`, `folder` |
-| Calendar list/search | `id`, `href`, `title`, `start`, `end`, `location`, `allDay` | `description`, `organizer`, `attendees`, `status`, `recurrence`, `calendar` |
-| Task list/search | `id`, `href`, `title`, `status`, `due`, `priority` | `description`, `categories`, `start`, `completed`, `percentComplete`, `recurrence`, `calendar` |
-| Contact list/search | `id`, `href`, `name`, `emails`, `phones` | `organization`, `title`, `address`, `notes`, `addressBook` |
-
-The `folder`, `calendar`, and `addressBook` fields are automatically included in lean responses when no filter is applied (listing across all), and omitted when filtering by a specific one (since it's redundant).
-
-**Tool definition token cost** (schema tokens consumed per request, estimated at ~3.5 chars/token):
-
-| Configuration | Tools | Est. tokens |
-|---------------|-------|-------------|
-| Email only (IMAP or JMAP) | 6 | ~380 |
-| Email + Calendar + Tasks | 16 | ~943 |
-| Email + Contacts (JMAP) | 10 | ~585 |
-| Full suite (JMAP + CalDAV + Contacts) | 20 | ~1,148 |
-
-Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to trim tools you don't need.
