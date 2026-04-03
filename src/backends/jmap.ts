@@ -1,6 +1,5 @@
 import {
   AttachmentContent,
-  AttachmentInfo,
   EmailBackend,
   EmailMessage,
   ListMessagesOptions,
@@ -65,7 +64,7 @@ const FULL_PROPERTIES = [
   "textBody",
   "htmlBody",
   "bodyValues",
-  "bodyStructure",
+  "attachments",
 ];
 
 export class JmapBackend implements EmailBackend {
@@ -252,12 +251,15 @@ export class JmapBackend implements EmailBackend {
       message.body = bodyText;
     }
 
-    // Extract attachment metadata from bodyStructure
-    if (raw.bodyStructure) {
-      const attachments = this.extractJmapAttachments(raw.bodyStructure);
-      if (attachments.length > 0) {
-        message.attachments = attachments;
-      }
+    // Map server-computed attachments (RFC 8621 §4.1.4)
+    if (raw.attachments?.length > 0) {
+      message.attachments = raw.attachments.map((part: any) => ({
+        partId: part.blobId,
+        filename: part.name ?? `attachment-${part.partId ?? "unknown"}`,
+        mimeType: part.type || "application/octet-stream",
+        size: part.size ?? 0,
+        isInline: part.disposition === "inline" && !!part.cid,
+      }));
     }
 
     return message;
@@ -265,18 +267,19 @@ export class JmapBackend implements EmailBackend {
 
   async getAttachment(
     messageId: string,
-    partId: string
+    partId: string,
+    maxSize?: number
   ): Promise<AttachmentContent> {
     const session = this.ensureConnected();
 
-    // Fetch message to find the part metadata
+    // Fetch the server-computed attachments list (RFC 8621 §4.1.4)
     const responses = await this.jmapRequest([
       [
         "Email/get",
         {
           accountId: session.accountId,
           ids: [messageId],
-          properties: ["bodyStructure"],
+          properties: ["attachments"],
           bodyProperties: [
             "partId",
             "blobId",
@@ -299,10 +302,16 @@ export class JmapBackend implements EmailBackend {
       throw new Error(`Message not found: ${messageId}`);
     }
 
-    const raw = emailResponse.list[0];
-    const part = this.findJmapPart(raw.bodyStructure, partId);
+    const attachments: any[] = emailResponse.list[0].attachments ?? [];
+    const part = attachments.find((p: any) => p.blobId === partId);
     if (!part) {
       throw new Error(`Attachment part ${partId} not found`);
+    }
+
+    if (maxSize && part.size > maxSize) {
+      throw new Error(
+        `Attachment too large: ${part.size} bytes (max ${maxSize})`
+      );
     }
 
     // Download blob via downloadUrl template
@@ -522,54 +531,6 @@ export class JmapBackend implements EmailBackend {
     return parts.join("/");
   }
 
-  private extractJmapAttachments(bodyStructure: any): AttachmentInfo[] {
-    const attachments: AttachmentInfo[] = [];
-    this.collectJmapAttachments(bodyStructure, attachments);
-    return attachments;
-  }
-
-  private collectJmapAttachments(part: any, out: AttachmentInfo[]): void {
-    if (part.subParts) {
-      for (const sub of part.subParts) {
-        this.collectJmapAttachments(sub, out);
-      }
-      return;
-    }
-
-    // Skip text body parts unless explicitly attached
-    const type: string = part.type ?? "";
-    if (
-      (type === "text/plain" || type === "text/html") &&
-      part.disposition !== "attachment"
-    ) {
-      return;
-    }
-
-    // Skip multipart containers
-    if (type.startsWith("multipart/")) return;
-
-    // Only include parts that have a blobId (downloadable)
-    if (!part.blobId) return;
-
-    out.push({
-      partId: part.blobId,
-      filename: part.name ?? `attachment-${part.partId ?? "unknown"}`,
-      mimeType: type || "application/octet-stream",
-      size: part.size ?? 0,
-      isInline: part.disposition === "inline" && !!part.cid,
-    });
-  }
-
-  private findJmapPart(bodyStructure: any, blobId: string): any | null {
-    if (bodyStructure.blobId === blobId) return bodyStructure;
-    if (bodyStructure.subParts) {
-      for (const sub of bodyStructure.subParts) {
-        const found = this.findJmapPart(sub, blobId);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
 
   private mapJmapEmail(raw: any): EmailMessage {
     const mailboxId = Object.keys(raw.mailboxIds ?? {})[0];

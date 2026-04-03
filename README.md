@@ -188,7 +188,7 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 | `list_messages` | List recent messages with optional folder, limit, and offset |
 | `get_message` | Get a single message by ID, including full body and attachment metadata |
 | `search_messages` | Search messages by text query |
-| `get_attachment` | Download an email attachment by part ID (base64-encoded content) |
+| `get_attachment` | Download an email attachment by part ID. Returns base64 content, or saves to disk if `saveTo` path is provided |
 | `send_message` | Send an email (JMAP, or IMAP with SMTP configured) |
 
 ### Calendar (CalDAV)
@@ -239,9 +239,9 @@ The `folder`, `calendar`, and `addressBook` fields are automatically included in
 
 | Configuration | Tools | Est. tokens |
 |---------------|-------|-------------|
-| Email only (IMAP or JMAP) | 5 | ~293 |
-| Email + Calendar + Tasks | 15 | ~855 |
-| Email + Contacts (JMAP) | 9 | ~498 |
-| Full suite (JMAP + CalDAV + Contacts) | 19 | ~1,061 |
+| Email only (IMAP or JMAP) | 6 | ~380 |
+| Email + Calendar + Tasks | 16 | ~943 |
+| Email + Contacts (JMAP) | 10 | ~585 |
+| Full suite (JMAP + CalDAV + Contacts) | 20 | ~1,148 |
 
 Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to trim tools you don't need.

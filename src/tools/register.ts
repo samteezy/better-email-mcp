@@ -1,3 +1,5 @@
+import { writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { EmailBackend, EmailMessage } from "../types.js";
@@ -193,7 +195,7 @@ export function registerEmailTools(
 
     server.tool(
       "get_attachment",
-      "Download an email attachment by part ID (from get_message attachments list). Returns base64-encoded content.",
+      "Download an email attachment by part ID (from get_message attachments list). Returns base64-encoded content, or saves to disk if saveTo is provided.",
       {
         id: z.string().describe("The message ID"),
         partId: z
@@ -201,27 +203,28 @@ export function registerEmailTools(
           .describe(
             "The attachment part ID (from the attachments array in get_message response)"
           ),
+        saveTo: z
+          .string()
+          .optional()
+          .describe(
+            "File path to save attachment to disk instead of returning base64 content"
+          ),
       },
-      async ({ id, partId }) => {
+      async ({ id, partId, saveTo }) => {
         try {
-          // Pre-check size if possible by fetching message metadata
-          const msg = await backend.getMessage(id);
-          if (!msg) {
-            return {
-              content: [{ type: "text" as const, text: "Message not found" }],
-              isError: true,
-            };
+          const result = await getAttachmentFn(id, partId, MAX_ATTACHMENT_SIZE);
+          if (saveTo) {
+            const buffer = Buffer.from(result.content, "base64");
+            await mkdir(dirname(saveTo), { recursive: true });
+            await writeFile(saveTo, buffer);
+            return jsonResult({
+              saved: true,
+              path: saveTo,
+              filename: result.filename,
+              mimeType: result.mimeType,
+              size: buffer.length,
+            });
           }
-          const attachInfo = msg.attachments?.find((a) => a.partId === partId);
-          if (attachInfo && attachInfo.size > MAX_ATTACHMENT_SIZE) {
-            return errorResult(
-              new Error(
-                `Attachment too large: ${attachInfo.size} bytes (max ${MAX_ATTACHMENT_SIZE})`
-              )
-            );
-          }
-
-          const result = await getAttachmentFn(id, partId);
           return jsonResult(result);
         } catch (err) {
           return errorResult(err);

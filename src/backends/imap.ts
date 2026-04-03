@@ -198,7 +198,8 @@ export class ImapBackend implements EmailBackend {
 
   async getAttachment(
     messageId: string,
-    partId: string
+    partId: string,
+    maxSize?: number
   ): Promise<AttachmentContent> {
     if (!/^\d+(\.\d+)*$/.test(partId)) {
       throw new Error(`Invalid part ID: ${partId}`);
@@ -234,6 +235,12 @@ export class ImapBackend implements EmailBackend {
     const part = structure ? findBodyPart(structure, partId) : null;
     const encoding = part?.encoding ?? "BASE64";
     const decoded = decodePartContent(rawContent, encoding);
+
+    if (maxSize && decoded.length > maxSize) {
+      throw new Error(
+        `Attachment too large: ${decoded.length} bytes (max ${maxSize})`
+      );
+    }
 
     return {
       filename:

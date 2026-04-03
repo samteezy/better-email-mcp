@@ -62,7 +62,11 @@ export interface EmailBackend {
   getMessage(id: string): Promise<EmailMessage | null>;
   searchMessages(options: SearchOptions): Promise<EmailMessage[]>;
   sendMessage?(options: SendMessageOptions): Promise<{ id: string }>;
-  getAttachment?(messageId: string, partId: string): Promise<AttachmentContent>;
+  getAttachment?(
+    messageId: string,
+    partId: string,
+    maxSize?: number
+  ): Promise<AttachmentContent>;
 }
 
 // --- Calendar types ---
