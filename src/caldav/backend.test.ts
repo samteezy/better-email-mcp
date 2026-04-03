@@ -445,15 +445,15 @@ END:VCALENDAR`;
       const tasks = await backend.listTasks();
 
       expect(tasks).toHaveLength(2);
-      // Sorted by due ascending: taxes (Apr 15) before groceries (Apr 20)
-      expect(tasks[0].title).toBe("File taxes");
-      expect(tasks[0].id).toBe("todo-2@example.com");
-      expect(tasks[0].status).toBe("COMPLETED");
-      expect(tasks[0].calendar).toBe("Work");
+      // Incomplete first: groceries (NEEDS-ACTION) before taxes (COMPLETED)
+      expect(tasks[0].title).toBe("Buy groceries");
+      expect(tasks[0].id).toBe("todo-1@example.com");
+      expect(tasks[0].priority).toBe(1);
+      expect(tasks[0].categories).toEqual(["Shopping", "Personal"]);
 
-      expect(tasks[1].title).toBe("Buy groceries");
-      expect(tasks[1].priority).toBe(1);
-      expect(tasks[1].categories).toEqual(["Shopping", "Personal"]);
+      expect(tasks[1].title).toBe("File taxes");
+      expect(tasks[1].status).toBe("COMPLETED");
+      expect(tasks[1].calendar).toBe("Work");
     });
 
     it("filters by status", async () => {
@@ -478,6 +478,54 @@ END:VCALENDAR`;
 
       expect(tasks).toHaveLength(1);
       expect(tasks[0].title).toBe("Buy groceries");
+    });
+
+    it("sorts incomplete tasks before completed/cancelled", async () => {
+      const { backend, mockClient } = createBackend();
+      setupDiscoveryMock(mockClient);
+      await backend.connect();
+
+      const makeTodo = (uid: string, summary: string, status: string, due?: string, completed?: string) => {
+        let ical = `BEGIN:VCALENDAR\nBEGIN:VTODO\nUID:${uid}\nSUMMARY:${summary}\nSTATUS:${status}`;
+        if (due) ical += `\nDUE:${due}`;
+        if (completed) ical += `\nCOMPLETED:${completed}`;
+        ical += `\nEND:VTODO\nEND:VCALENDAR`;
+        return ical;
+      };
+
+      mockClient.report.mockResolvedValueOnce([
+        entry("/calendars/user/personal/t1.ics", {
+          getetag: '"e1"',
+          "calendar-data": makeTodo("t1", "Completed early", "COMPLETED", "20250401T120000Z", "20250401T100000Z"),
+        }),
+        entry("/calendars/user/personal/t2.ics", {
+          getetag: '"e2"',
+          "calendar-data": makeTodo("t2", "Action later", "NEEDS-ACTION", "20250420T120000Z"),
+        }),
+        entry("/calendars/user/personal/t3.ics", {
+          getetag: '"e3"',
+          "calendar-data": makeTodo("t3", "In progress early", "IN-PROCESS", "20250405T120000Z"),
+        }),
+        entry("/calendars/user/personal/t4.ics", {
+          getetag: '"e4"',
+          "calendar-data": makeTodo("t4", "Cancelled no due", "CANCELLED"),
+        }),
+        entry("/calendars/user/personal/t5.ics", {
+          getetag: '"e5"',
+          "calendar-data": makeTodo("t5", "Action no due", "NEEDS-ACTION"),
+        }),
+      ]);
+      mockClient.report.mockResolvedValueOnce([]);
+
+      const tasks = await backend.listTasks();
+
+      expect(tasks.map((t) => t.title)).toEqual([
+        "In progress early",   // incomplete, due Apr 5
+        "Action later",        // incomplete, due Apr 20
+        "Action no due",       // incomplete, no due (last in incomplete group)
+        "Completed early",     // done, due Apr 1
+        "Cancelled no due",    // done, no due (last in done group)
+      ]);
     });
   });
 

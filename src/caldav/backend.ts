@@ -249,8 +249,12 @@ export class CalDavBackend implements CalendarBackend, TaskBackend {
       ? allTasks.filter((t) => t.status === statusFilter)
       : allTasks;
 
-    // Sort by due date ascending (nulls last)
+    // Sort: incomplete tasks first, then by due date ascending (nulls last)
+    const isDone = (s?: string) => s === "COMPLETED" || s === "CANCELLED";
     filtered.sort((a, b) => {
+      const aDone = isDone(a.status) ? 1 : 0;
+      const bDone = isDone(b.status) ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
       if (!a.due && !b.due) return 0;
       if (!a.due) return 1;
       if (!b.due) return -1;
