@@ -245,9 +245,12 @@ export class CalDavBackend implements CalendarBackend, TaskBackend {
     }
 
     // Filter by status
+    const includeCompleted = options?.includeCompleted ?? false;
     const filtered = statusFilter
       ? allTasks.filter((t) => t.status === statusFilter)
-      : allTasks;
+      : includeCompleted
+        ? allTasks
+        : allTasks.filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
 
     // Sort: incomplete tasks first, then by due date ascending (nulls last)
     const isDone = (s?: string) => s === "COMPLETED" || s === "CANCELLED";

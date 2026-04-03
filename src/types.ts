@@ -136,6 +136,7 @@ export interface ListTasksOptions {
   calendar?: string;
   limit?: number;
   status?: string;
+  includeCompleted?: boolean;
 }
 
 export interface SearchTasksOptions {

@@ -244,7 +244,7 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 
 | Tool | Description |
 |------|-------------|
-| `list_tasks` | List tasks with optional calendar, status filter, and limit |
+| `list_tasks` | List tasks (excludes completed/cancelled by default; pass `includeCompleted: true` to show all) |
 | `get_task` | Get a single task by href, including full details |
 | `search_tasks` | Search tasks by text query (matches title, description, categories) |
 | `create_task` | Create a new task with title, due date, priority, categories |

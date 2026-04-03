@@ -45,6 +45,10 @@ export function registerTaskTools(
           .string()
           .optional()
           .describe("Filter by status: NEEDS-ACTION, IN-PROCESS, COMPLETED, or CANCELLED"),
+        includeCompleted: z
+          .boolean()
+          .optional()
+          .describe("Include completed/cancelled tasks (default false)"),
         verbose: z
           .boolean()
           .optional()
@@ -52,10 +56,10 @@ export function registerTaskTools(
             "Return all fields (description, categories, start, completed, percentComplete, recurrence) — default returns only id, href, title, status, due, priority, calendar"
           ),
       },
-      async ({ calendar, limit, status, verbose }) => {
+      async ({ calendar, limit, status, includeCompleted, verbose }) => {
         try {
           const cal = calendar ?? defaultCalendar;
-          const tasks = await backend.listTasks({ calendar: cal, limit, status });
+          const tasks = await backend.listTasks({ calendar: cal, limit, status, includeCompleted });
           if (verbose) return jsonResult(tasks);
           return jsonResult(toLeanTasks(tasks, { includeCalendar: !cal }));
         } catch (err) {
