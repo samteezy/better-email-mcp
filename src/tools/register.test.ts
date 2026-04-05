@@ -89,6 +89,16 @@ describe("toLeanMessages()", () => {
     expect(result[0]).toHaveProperty("folder", "Inbox");
     expect(result[1]).toHaveProperty("folder", "Sent");
   });
+
+  it("includes tags when present, omits when absent", () => {
+    const withTags: EmailMessage[] = [
+      { ...messages[0], tags: ["processed", "follow-up"] },
+      { ...messages[1] }, // no tags
+    ];
+    const result = toLeanMessages(withTags, { includeFolder: false });
+    expect(result[0]).toHaveProperty("tags", ["processed", "follow-up"]);
+    expect(result[1]).not.toHaveProperty("tags");
+  });
 });
 
 describe("parseEmailFormat()", () => {

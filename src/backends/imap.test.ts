@@ -1,4 +1,4 @@
-import { ImapBackend, encodeMessageId, decodeMessageId } from "./imap";
+import { ImapBackend, encodeMessageId, decodeMessageId, validateTagName } from "./imap";
 
 // --- Mock ImapClient ---
 
@@ -312,6 +312,228 @@ describe("ImapBackend", () => {
       expect(results).toEqual([]);
     });
   });
+
+  describe("tagMessages()", () => {
+    it("adds a tag using UID STORE +FLAGS", async () => {
+      const backend = await createConnectedBackend();
+      const commands: string[] = [];
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        commands.push(cmd);
+        return [];
+      });
+
+      const result = await backend.tagMessages({
+        ids: ["INBOX:100", "INBOX:101"],
+        tag: "processed",
+        action: "add",
+      });
+
+      expect(result.tagged).toEqual(["INBOX:100", "INBOX:101"]);
+      expect(commands).toContain("SELECT INBOX");
+      expect(commands.find((c) => c.includes("UID STORE 100,101 +FLAGS (processed)"))).toBeDefined();
+    });
+
+    it("removes a tag using UID STORE -FLAGS", async () => {
+      const backend = await createConnectedBackend();
+      const commands: string[] = [];
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        commands.push(cmd);
+        return [];
+      });
+
+      const result = await backend.tagMessages({
+        ids: ["INBOX:100"],
+        tag: "follow-up",
+        action: "remove",
+      });
+
+      expect(result.tagged).toEqual(["INBOX:100"]);
+      expect(commands.find((c) => c.includes("-FLAGS (follow-up)"))).toBeDefined();
+    });
+
+    it("groups messages by folder when tagging across folders", async () => {
+      const backend = await createConnectedBackend();
+      const commands: string[] = [];
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        commands.push(cmd);
+        return [];
+      });
+
+      await backend.tagMessages({
+        ids: ["INBOX:100", "Sent:200"],
+        tag: "important",
+        action: "add",
+      });
+
+      const selectCommands = commands.filter((c) => c.startsWith("SELECT"));
+      expect(selectCommands).toHaveLength(2);
+      expect(commands.find((c) => c.includes("UID STORE 100 +FLAGS (important)"))).toBeDefined();
+      expect(commands.find((c) => c.includes("UID STORE 200 +FLAGS (important)"))).toBeDefined();
+    });
+
+    it("rejects invalid tag names", async () => {
+      const backend = await createConnectedBackend();
+
+      await expect(
+        backend.tagMessages({ ids: ["INBOX:100"], tag: "has spaces", action: "add" })
+      ).rejects.toThrow("letters, digits, hyphens, and underscores");
+
+      await expect(
+        backend.tagMessages({ ids: ["INBOX:100"], tag: "$system", action: "add" })
+      ).rejects.toThrow("reserved for system flags");
+
+      await expect(
+        backend.tagMessages({ ids: ["INBOX:100"], tag: "\\Seen", action: "add" })
+      ).rejects.toThrow("reserved for system flags");
+    });
+
+    it("throws on unknown folder", async () => {
+      const backend = await createConnectedBackend();
+
+      await expect(
+        backend.tagMessages({ ids: ["Nonexistent:100"], tag: "test", action: "add" })
+      ).rejects.toThrow("Unknown folder: Nonexistent");
+    });
+  });
+
+  describe("moveMessages()", () => {
+    it("moves messages using UID MOVE", async () => {
+      const backend = await createConnectedBackend();
+      const commands: string[] = [];
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        commands.push(cmd);
+        return [];
+      });
+
+      const result = await backend.moveMessages({
+        ids: ["INBOX:100", "INBOX:101"],
+        folder: "Sent",
+      });
+
+      expect(result.moved).toEqual(["INBOX:100", "INBOX:101"]);
+      expect(commands).toContain("SELECT INBOX");
+      expect(commands.find((c) => c.includes("UID MOVE 100,101 Sent"))).toBeDefined();
+    });
+
+    it("falls back to COPY+DELETE+EXPUNGE when MOVE fails", async () => {
+      const backend = await createConnectedBackend();
+      const commands: string[] = [];
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        commands.push(cmd);
+        if (cmd.startsWith("UID MOVE")) {
+          throw new Error("MOVE not supported");
+        }
+        return [];
+      });
+
+      const result = await backend.moveMessages({
+        ids: ["INBOX:100"],
+        folder: "Drafts",
+      });
+
+      expect(result.moved).toEqual(["INBOX:100"]);
+      expect(commands.find((c) => c.includes("UID COPY 100"))).toBeDefined();
+      expect(commands.find((c) => c.includes("UID STORE 100 +FLAGS (\\Deleted)"))).toBeDefined();
+      expect(commands).toContain("EXPUNGE");
+    });
+
+    it("skips messages already in the destination folder", async () => {
+      const backend = await createConnectedBackend();
+      const commands: string[] = [];
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        commands.push(cmd);
+        return [];
+      });
+
+      const result = await backend.moveMessages({
+        ids: ["INBOX:100"],
+        folder: "INBOX",
+      });
+
+      expect(result.moved).toEqual([]);
+      // No MOVE or COPY should have been issued
+      expect(commands.find((c) => c.includes("UID MOVE"))).toBeUndefined();
+    });
+
+    it("groups messages from different source folders", async () => {
+      const backend = await createConnectedBackend();
+      const commands: string[] = [];
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        commands.push(cmd);
+        return [];
+      });
+
+      const result = await backend.moveMessages({
+        ids: ["INBOX:100", "Sent:200"],
+        folder: "Drafts",
+      });
+
+      expect(result.moved).toEqual(["INBOX:100", "Sent:200"]);
+      const selectCommands = commands.filter((c) => c.startsWith("SELECT"));
+      expect(selectCommands).toHaveLength(2);
+    });
+
+    it("throws on unknown destination folder", async () => {
+      const backend = await createConnectedBackend();
+
+      await expect(
+        backend.moveMessages({ ids: ["INBOX:100"], folder: "Nonexistent" })
+      ).rejects.toThrow("Unknown folder: Nonexistent");
+    });
+  });
+
+  describe("tags in listMessages()", () => {
+    it("exposes custom flags as tags, excluding system flags", async () => {
+      const backend = await createConnectedBackend();
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        if (cmd.startsWith("SELECT")) return [];
+        if (cmd.startsWith("UID SEARCH")) {
+          return [{ tag: "*", type: "SEARCH", text: "100" }];
+        }
+        if (cmd.startsWith("UID FETCH")) {
+          return [
+            {
+              tag: "*",
+              type: "FETCH",
+              num: 1,
+              text: `(UID 100 FLAGS (\\Seen processed follow-up) ENVELOPE ${FETCH_ENVELOPE_1})`,
+            },
+          ];
+        }
+        return [];
+      });
+
+      const messages = await backend.listMessages({ folder: "INBOX" });
+
+      expect(messages[0].tags).toEqual(["processed", "follow-up"]);
+      expect(messages[0].isRead).toBe(true);
+    });
+
+    it("omits tags field when no custom flags exist", async () => {
+      const backend = await createConnectedBackend();
+
+      mockClient.command.mockImplementation(async (cmd: string) => {
+        if (cmd.startsWith("SELECT")) return [];
+        if (cmd.startsWith("UID SEARCH")) {
+          return [{ tag: "*", type: "SEARCH", text: "100" }];
+        }
+        if (cmd.startsWith("UID FETCH")) return [FETCH_RESPONSES[0]];
+        return [];
+      });
+
+      const messages = await backend.listMessages({ folder: "INBOX" });
+
+      expect(messages[0].tags).toBeUndefined();
+    });
+  });
 });
 
 describe("Message ID encoding", () => {
@@ -336,5 +558,44 @@ describe("Message ID encoding", () => {
 
   it("throws on malformed ID", () => {
     expect(() => decodeMessageId("nocolon")).toThrow("Malformed message ID");
+  });
+});
+
+describe("validateTagName()", () => {
+  it("accepts valid tag names", () => {
+    expect(() => validateTagName("processed")).not.toThrow();
+    expect(() => validateTagName("follow-up")).not.toThrow();
+    expect(() => validateTagName("project_x")).not.toThrow();
+    expect(() => validateTagName("ABC123")).not.toThrow();
+  });
+
+  it("rejects empty tags", () => {
+    expect(() => validateTagName("")).toThrow("1–255 characters");
+  });
+
+  it("rejects tags starting with backslash", () => {
+    expect(() => validateTagName("\\Seen")).toThrow("reserved for system flags");
+  });
+
+  it("rejects tags starting with $", () => {
+    expect(() => validateTagName("$flagged")).toThrow("reserved for system flags");
+  });
+
+  it("rejects tags with spaces", () => {
+    expect(() => validateTagName("has space")).toThrow("letters, digits, hyphens, and underscores");
+  });
+
+  it("rejects tags with special characters", () => {
+    expect(() => validateTagName("tag@name")).toThrow("letters, digits, hyphens, and underscores");
+    expect(() => validateTagName("tag.name")).toThrow("letters, digits, hyphens, and underscores");
+    expect(() => validateTagName("tag/name")).toThrow("letters, digits, hyphens, and underscores");
+  });
+
+  it("rejects tags over 255 characters", () => {
+    expect(() => validateTagName("a".repeat(256))).toThrow("1–255 characters");
+  });
+
+  it("accepts tags at max length", () => {
+    expect(() => validateTagName("a".repeat(255))).not.toThrow();
   });
 });
