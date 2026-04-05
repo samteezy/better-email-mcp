@@ -20,13 +20,13 @@ Tools are only registered when the matching backend is configured. Combine rows 
 
 | Protocol | Tools | Est. tokens |
 |----------|-------|-------------|
-| IMAP | 7 | ~458 |
-| JMAP (`EMAIL_FORMAT=html` adds `htmlBody`) | 7 | ~465 |
+| IMAP | 8 | ~513 |
+| JMAP (`EMAIL_FORMAT=html` adds `htmlBody`) | 8 | ~520 |
 | CalDAV — calendar | 4 | ~192 |
 | CalDAV — tasks | 6 | ~383 |
 | CardDAV | 4 | ~206 |
 
-**Example totals:** IMAP only ~458 · IMAP + CalDAV + Tasks ~1,032 · Full suite (JMAP + CalDAV + Tasks + CardDAV) ~1,245
+**Example totals:** IMAP only ~513 · IMAP + CalDAV + Tasks ~1,087 · Full suite (JMAP + CalDAV + Tasks + CardDAV) ~1,299
 
 Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to trim tools you don't need.
 
@@ -232,6 +232,7 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 | `search_messages` | Search messages by text query |
 | `get_attachment` | Download an email attachment by part ID. Returns base64 content, or saves to disk if `saveTo` path is provided |
 | `tag_messages` | Add or remove a tag (label/keyword) on one or more emails without moving them between folders |
+| `move_messages` | Move one or more emails to a different folder/mailbox |
 | `send_message` | Send an email (JMAP, or IMAP with SMTP configured) |
 
 ### Calendar (CalDAV)

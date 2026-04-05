@@ -3,6 +3,7 @@ import {
   EmailBackend,
   EmailMessage,
   ListMessagesOptions,
+  MoveMessagesOptions,
   SearchOptions,
   SendMessageOptions,
   TagMessagesOptions,
@@ -46,6 +47,7 @@ export class ImapBackend implements EmailBackend {
 
   sendMessage?: (options: SendMessageOptions) => Promise<{ id: string }>;
   tagMessages: (options: TagMessagesOptions) => Promise<{ tagged: string[] }>;
+  moveMessages: (options: MoveMessagesOptions) => Promise<{ moved: string[] }>;
 
   constructor(config: ImapConfig, smtpConfig?: SmtpConfig) {
     this.config = config;
@@ -54,6 +56,7 @@ export class ImapBackend implements EmailBackend {
       this.sendMessage = this.sendMessageImpl.bind(this);
     }
     this.tagMessages = this.tagMessagesImpl.bind(this);
+    this.moveMessages = this.moveMessagesImpl.bind(this);
   }
 
   async connect(): Promise<void> {
@@ -384,6 +387,55 @@ export class ImapBackend implements EmailBackend {
     }
 
     return { tagged };
+  }
+
+  private async moveMessagesImpl(
+    options: MoveMessagesOptions
+  ): Promise<{ moved: string[] }> {
+    const client = this.ensureConnected();
+    const destination = options.folder;
+
+    this.validateFolder(destination);
+
+    // Group message IDs by source folder
+    const byFolder = new Map<string, number[]>();
+    for (const id of options.ids) {
+      const { folder, uid } = decodeMessageId(id);
+      this.validateFolder(folder);
+      if (folder === destination) continue; // already in destination
+      const uids = byFolder.get(folder) ?? [];
+      uids.push(uid);
+      byFolder.set(folder, uids);
+    }
+
+    const moved: string[] = [];
+
+    for (const [folder, uids] of byFolder) {
+      await client.command(`SELECT ${quoteImapString(folder)}`);
+      const uidSet = uids.join(",");
+
+      try {
+        // RFC 6851 UID MOVE — atomic move, widely supported
+        await client.command(
+          `UID MOVE ${uidSet} ${quoteImapString(destination)}`
+        );
+      } catch {
+        // Fallback: COPY + mark deleted + EXPUNGE
+        await client.command(
+          `UID COPY ${uidSet} ${quoteImapString(destination)}`
+        );
+        await client.command(
+          `UID STORE ${uidSet} +FLAGS (\\Deleted)`
+        );
+        await client.command("EXPUNGE");
+      }
+
+      for (const uid of uids) {
+        moved.push(encodeMessageId(folder, uid));
+      }
+    }
+
+    return { moved };
   }
 
   // --- Private helpers ---

@@ -235,6 +235,32 @@ export function registerEmailTools(
     );
   }
 
+  if (backend.moveMessages && toolEnabled("move_messages", disabled)) {
+    const moveFn = backend.moveMessages.bind(backend);
+
+    server.tool(
+      "move_messages",
+      "Move one or more emails to a different folder/mailbox",
+      {
+        ids: z
+          .array(z.string())
+          .min(1)
+          .describe("One or more message IDs to move"),
+        folder: z
+          .string()
+          .describe("Destination folder name (e.g. 'Archive', 'Trash')"),
+      },
+      async ({ ids, folder }) => {
+        try {
+          const result = await moveFn({ ids, folder });
+          return jsonResult(result);
+        } catch (err) {
+          return errorResult(err);
+        }
+      }
+    );
+  }
+
   if (backend.getAttachment && toolEnabled("get_attachment", disabled)) {
     const getAttachmentFn = backend.getAttachment.bind(backend);
 
