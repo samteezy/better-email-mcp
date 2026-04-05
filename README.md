@@ -20,13 +20,13 @@ Tools are only registered when the matching backend is configured. Combine rows 
 
 | Protocol | Tools | Est. tokens |
 |----------|-------|-------------|
-| IMAP | 6 | ~373 |
-| JMAP (`EMAIL_FORMAT=html` adds `htmlBody`) | 6 | ~380 |
+| IMAP | 7 | ~458 |
+| JMAP (`EMAIL_FORMAT=html` adds `htmlBody`) | 7 | ~465 |
 | CalDAV — calendar | 4 | ~192 |
-| CalDAV — tasks | 6 | ~371 |
+| CalDAV — tasks | 6 | ~383 |
 | CardDAV | 4 | ~206 |
 
-**Example totals:** IMAP only ~373 · IMAP + CalDAV + Tasks ~935 · Full suite (JMAP + CalDAV + Tasks + CardDAV) ~1,148
+**Example totals:** IMAP only ~458 · IMAP + CalDAV + Tasks ~1,032 · Full suite (JMAP + CalDAV + Tasks + CardDAV) ~1,245
 
 Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to trim tools you don't need.
 
@@ -34,10 +34,12 @@ Run `npm run count-tokens` for a per-tool breakdown. Use `DISABLED_TOOLS` to tri
 
 | Tool type | Default fields | Additional with `verbose: true` |
 |-----------|---------------|--------------------------------|
-| Email list/search | `id`, `from`, `subject`, `date`, `snippet` | `to`, `cc`, `isRead`, `folder` |
+| Email list/search | `id`, `from`, `subject`, `date`, `snippet`, `tags`* | `to`, `cc`, `isRead`, `folder` |
 | Calendar list/search | `id`, `href`, `title`, `start`, `end`, `location`, `allDay` | `description`, `organizer`, `attendees`, `status`, `recurrence`, `calendar` |
 | Task list/search | `id`, `href`, `title`, `status`, `due`, `priority` | `description`, `categories`, `start`, `completed`, `percentComplete`, `recurrence`, `calendar` |
 | Contact list/search | `id`, `href`, `name`, `emails`, `phones` | `organization`, `title`, `address`, `notes`, `addressBook` |
+
+\* `tags` is included in lean responses only when the message has tags. Tags are custom labels set via `tag_messages` — system flags like `\Seen` and `$flagged` are excluded.
 
 The `folder`, `calendar`, and `addressBook` fields are automatically included in lean responses when no filter is applied (listing across all), and omitted when filtering by a specific one (since it's redundant).
 
@@ -229,6 +231,7 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 | `get_message` | Get a single message by ID, including full body and attachment metadata |
 | `search_messages` | Search messages by text query |
 | `get_attachment` | Download an email attachment by part ID. Returns base64 content, or saves to disk if `saveTo` path is provided |
+| `tag_messages` | Add or remove a tag (label/keyword) on one or more emails without moving them between folders |
 | `send_message` | Send an email (JMAP, or IMAP with SMTP configured) |
 
 ### Calendar (CalDAV)
