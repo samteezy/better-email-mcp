@@ -5,6 +5,7 @@ import {
   ListMessagesOptions,
   SearchOptions,
   SendMessageOptions,
+  TagMessagesOptions,
 } from "../types.js";
 import { ImapClient, ImapError } from "../imap/client.js";
 import {
@@ -44,6 +45,7 @@ export class ImapBackend implements EmailBackend {
   private smtpDomain: string | undefined;
 
   sendMessage?: (options: SendMessageOptions) => Promise<{ id: string }>;
+  tagMessages: (options: TagMessagesOptions) => Promise<{ tagged: string[] }>;
 
   constructor(config: ImapConfig, smtpConfig?: SmtpConfig) {
     this.config = config;
@@ -51,6 +53,7 @@ export class ImapBackend implements EmailBackend {
     if (smtpConfig) {
       this.sendMessage = this.sendMessageImpl.bind(this);
     }
+    this.tagMessages = this.tagMessagesImpl.bind(this);
   }
 
   async connect(): Promise<void> {
@@ -348,6 +351,41 @@ export class ImapBackend implements EmailBackend {
     return { id: messageId };
   }
 
+  private async tagMessagesImpl(
+    options: TagMessagesOptions
+  ): Promise<{ tagged: string[] }> {
+    const client = this.ensureConnected();
+    const { tag, action } = options;
+
+    validateTagName(tag);
+
+    // Group message IDs by folder since IMAP requires SELECT per folder
+    const byFolder = new Map<string, number[]>();
+    for (const id of options.ids) {
+      const { folder, uid } = decodeMessageId(id);
+      this.validateFolder(folder);
+      const uids = byFolder.get(folder) ?? [];
+      uids.push(uid);
+      byFolder.set(folder, uids);
+    }
+
+    const tagged: string[] = [];
+    const storeAction = action === "add" ? "+FLAGS" : "-FLAGS";
+
+    for (const [folder, uids] of byFolder) {
+      await client.command(`SELECT ${quoteImapString(folder)}`);
+      const uidSet = uids.join(",");
+      await client.command(
+        `UID STORE ${uidSet} ${storeAction} (${tag})`
+      );
+      for (const uid of uids) {
+        tagged.push(encodeMessageId(folder, uid));
+      }
+    }
+
+    return { tagged };
+  }
+
   // --- Private helpers ---
 
   private sanitizeHeader(value: string): string {
@@ -424,6 +462,12 @@ export class ImapBackend implements EmailBackend {
       message.cc = cc;
     }
 
+    // Expose custom flags (keywords) as tags — exclude system flags (\Seen, \Flagged, etc.)
+    const tags = (parsed.flags ?? []).filter((f) => !f.startsWith("\\"));
+    if (tags.length > 0) {
+      message.tags = tags;
+    }
+
     return message;
   }
 }
@@ -445,6 +489,26 @@ export function decodeMessageId(id: string): { folder: string; uid: number } {
     throw new ImapError("invalidId", `Malformed UID in ID: ${id}`);
   }
   return { folder, uid };
+}
+
+// --- Tag validation ---
+
+/** Validate that a tag name is safe for use as an IMAP keyword / JMAP keyword */
+export function validateTagName(tag: string): void {
+  if (!tag || tag.length === 0 || tag.length > 255) {
+    throw new Error("Tag must be 1–255 characters");
+  }
+  if (tag.startsWith("\\") || tag.startsWith("$")) {
+    throw new Error(
+      "Tags must not start with '\\' or '$' (reserved for system flags)"
+    );
+  }
+  // IMAP atoms: printable ASCII excluding ( ) { " % * \ ] and space/CTLs
+  if (!/^[A-Za-z0-9_-]+$/.test(tag)) {
+    throw new Error(
+      "Tags must contain only letters, digits, hyphens, and underscores"
+    );
+  }
 }
 
 // --- IMAP string quoting ---

@@ -5,7 +5,9 @@ import {
   ListMessagesOptions,
   SearchOptions,
   SendMessageOptions,
+  TagMessagesOptions,
 } from "../types.js";
+import { validateTagName } from "./imap.js";
 
 export interface JmapConfig {
   token: string;
@@ -494,6 +496,57 @@ export class JmapBackend implements EmailBackend {
     return { id: createdId };
   }
 
+  async tagMessages(
+    options: TagMessagesOptions
+  ): Promise<{ tagged: string[] }> {
+    this.ensureConnected();
+
+    validateTagName(options.tag);
+
+    // Build per-email update using JMAP patch paths
+    const update: Record<string, Record<string, unknown>> = {};
+    for (const id of options.ids) {
+      update[id] = {
+        [`keywords/${options.tag}`]:
+          options.action === "add" ? true : null,
+      };
+    }
+
+    const responses = await this.jmapRequest([
+      [
+        "Email/set",
+        {
+          accountId: this.session!.accountId,
+          update,
+        },
+        "0",
+      ],
+    ]);
+
+    const setResponse = this.findResponse(responses, "Email/set");
+    const tagged: string[] = [];
+    const updated = setResponse.updated ?? {};
+    for (const id of options.ids) {
+      if (id in updated || updated[id] !== undefined) {
+        tagged.push(id);
+      }
+    }
+
+    // Report errors for any that weren't updated
+    const notUpdated = setResponse.notUpdated ?? {};
+    if (Object.keys(notUpdated).length > 0) {
+      const errors = Object.entries(notUpdated)
+        .map(
+          ([id, err]: [string, unknown]) =>
+            `${id}: ${(err as { description?: string }).description ?? "unknown error"}`
+        )
+        .join("; ");
+      throw new Error(`Failed to tag some messages: ${errors}`);
+    }
+
+    return { tagged: options.ids };
+  }
+
   // --- Private helpers ---
 
   private ensureConnected(): JmapSession {
@@ -588,6 +641,14 @@ export class JmapBackend implements EmailBackend {
     const cc = (raw.cc ?? []).map((a) => a.email);
     if (cc.length > 0) {
       message.cc = cc;
+    }
+
+    // Expose custom keywords as tags — exclude $-prefixed system keywords
+    const tags = Object.keys(raw.keywords ?? {}).filter(
+      (k) => !k.startsWith("$")
+    );
+    if (tags.length > 0) {
+      message.tags = tags;
     }
 
     return message;

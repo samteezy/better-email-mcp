@@ -34,7 +34,7 @@ export function toLeanMessages(
 ) {
   const always: (keyof EmailMessage)[] = ["id", "from", "subject", "date", "snippet"];
   if (opts.includeFolder) always.push("folder");
-  return toLean(messages, always);
+  return toLean(messages, always, ["tags"]);
 }
 
 export function parseEmailFormat(): "plain" | "html" {
@@ -197,6 +197,37 @@ export function registerEmailTools(
             inReplyTo: args.inReplyTo as string | undefined,
           });
           return jsonResult({ sent: true, id: result.id });
+        } catch (err) {
+          return errorResult(err);
+        }
+      }
+    );
+  }
+
+  if (backend.tagMessages && toolEnabled("tag_messages", disabled)) {
+    const tagFn = backend.tagMessages.bind(backend);
+
+    server.tool(
+      "tag_messages",
+      "Add or remove a tag (label/keyword) on one or more emails. Tags are custom labels for organizing mail — they do not move messages between folders.",
+      {
+        ids: z
+          .array(z.string())
+          .min(1)
+          .describe("One or more message IDs to tag"),
+        tag: z
+          .string()
+          .describe(
+            "Tag name — letters, digits, hyphens, and underscores only (e.g. 'processed', 'follow-up', 'project_x')"
+          ),
+        action: z
+          .enum(["add", "remove"])
+          .describe("Whether to add or remove the tag"),
+      },
+      async ({ ids, tag, action }) => {
+        try {
+          const result = await tagFn({ ids, tag, action });
+          return jsonResult(result);
         } catch (err) {
           return errorResult(err);
         }
