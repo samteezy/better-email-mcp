@@ -385,6 +385,279 @@ describe("JmapBackend", () => {
     });
   });
 
+  describe("tagMessages()", () => {
+    it("adds a tag using Email/set with keyword patch path", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      const { calls } = mockFetch([
+        {
+          response: makeApiResponse([
+            [
+              "Email/set",
+              { updated: { email1: null, email2: null }, notUpdated: {} },
+              "0",
+            ],
+          ]),
+        },
+      ]);
+
+      const result = await backend.tagMessages({
+        ids: ["email1", "email2"],
+        tag: "processed",
+        action: "add",
+      });
+
+      expect(result.tagged).toEqual(["email1", "email2"]);
+
+      const requestBody = JSON.parse(calls[0].options.body);
+      const setArgs = requestBody.methodCalls[0][1];
+      expect(setArgs.update.email1["keywords/processed"]).toBe(true);
+      expect(setArgs.update.email2["keywords/processed"]).toBe(true);
+    });
+
+    it("removes a tag by setting keyword to null", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      const { calls } = mockFetch([
+        {
+          response: makeApiResponse([
+            [
+              "Email/set",
+              { updated: { email1: null }, notUpdated: {} },
+              "0",
+            ],
+          ]),
+        },
+      ]);
+
+      await backend.tagMessages({
+        ids: ["email1"],
+        tag: "follow-up",
+        action: "remove",
+      });
+
+      const requestBody = JSON.parse(calls[0].options.body);
+      const setArgs = requestBody.methodCalls[0][1];
+      expect(setArgs.update.email1["keywords/follow-up"]).toBeNull();
+    });
+
+    it("throws on invalid tag name", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      await expect(
+        backend.tagMessages({ ids: ["email1"], tag: "$system", action: "add" })
+      ).rejects.toThrow("reserved for system flags");
+    });
+
+    it("throws when server rejects some updates", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      mockFetch([
+        {
+          response: makeApiResponse([
+            [
+              "Email/set",
+              {
+                updated: {},
+                notUpdated: {
+                  email1: { type: "notFound", description: "Message not found" },
+                },
+              },
+              "0",
+            ],
+          ]),
+        },
+      ]);
+
+      await expect(
+        backend.tagMessages({ ids: ["email1"], tag: "test", action: "add" })
+      ).rejects.toThrow("Failed to tag some messages");
+    });
+  });
+
+  describe("moveMessages()", () => {
+    it("moves messages by updating mailboxIds", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      const { calls } = mockFetch([
+        // First call: Email/get to fetch current mailboxIds
+        {
+          response: makeApiResponse([
+            [
+              "Email/get",
+              {
+                list: [
+                  { id: "email1", mailboxIds: { mb1: true } },
+                  { id: "email2", mailboxIds: { mb1: true } },
+                ],
+                notFound: [],
+              },
+              "0",
+            ],
+          ]),
+        },
+        // Second call: Email/set to update mailboxIds
+        {
+          response: makeApiResponse([
+            [
+              "Email/set",
+              { updated: { email1: null, email2: null }, notUpdated: {} },
+              "0",
+            ],
+          ]),
+        },
+      ]);
+
+      const result = await backend.moveMessages({
+        ids: ["email1", "email2"],
+        folder: "Sent",
+      });
+
+      expect(result.moved).toEqual(["email1", "email2"]);
+
+      // Verify the Email/set update patches
+      const setBody = JSON.parse(calls[1].options.body);
+      const setArgs = setBody.methodCalls[0][1];
+      // Should add destination mailbox and remove source
+      expect(setArgs.update.email1["mailboxIds/mb3"]).toBe(true); // mb3 = Sent
+      expect(setArgs.update.email1["mailboxIds/mb1"]).toBeNull(); // remove Inbox
+    });
+
+    it("throws on unknown destination folder", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      await expect(
+        backend.moveMessages({ ids: ["email1"], folder: "Nonexistent" })
+      ).rejects.toThrow("Unknown folder: Nonexistent");
+    });
+
+    it("throws when server rejects some updates", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      mockFetch([
+        {
+          response: makeApiResponse([
+            [
+              "Email/get",
+              { list: [{ id: "email1", mailboxIds: { mb1: true } }], notFound: [] },
+              "0",
+            ],
+          ]),
+        },
+        {
+          response: makeApiResponse([
+            [
+              "Email/set",
+              {
+                updated: {},
+                notUpdated: {
+                  email1: { type: "forbidden", description: "Cannot move this message" },
+                },
+              },
+              "0",
+            ],
+          ]),
+        },
+      ]);
+
+      await expect(
+        backend.moveMessages({ ids: ["email1"], folder: "Drafts" })
+      ).rejects.toThrow("Failed to move some messages");
+    });
+
+    it("returns empty when no messages need moving", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      mockFetch([
+        {
+          response: makeApiResponse([
+            [
+              "Email/get",
+              { list: [], notFound: [] },
+              "0",
+            ],
+          ]),
+        },
+      ]);
+
+      const result = await backend.moveMessages({
+        ids: [],
+        folder: "Sent",
+      });
+
+      expect(result.moved).toEqual([]);
+    });
+  });
+
+  describe("tags in listMessages()", () => {
+    it("exposes custom keywords as tags, excluding $-prefixed system keywords", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      mockFetch([
+        {
+          response: makeApiResponse([
+            ["Email/query", { ids: ["email1"] }, "0"],
+            [
+              "Email/get",
+              {
+                list: [
+                  {
+                    ...MOCK_EMAIL_RAW,
+                    keywords: { $seen: true, $flagged: true, processed: true, "follow-up": true },
+                  },
+                ],
+                notFound: [],
+              },
+              "1",
+            ],
+          ]),
+        },
+      ]);
+
+      const messages = await backend.listMessages();
+
+      expect(messages[0].tags).toEqual(["processed", "follow-up"]);
+      expect(messages[0].isRead).toBe(true);
+    });
+
+    it("omits tags field when no custom keywords exist", async () => {
+      setupConnectedBackend();
+      const backend = new JmapBackend({ token: "test-token" });
+      await backend.connect();
+
+      mockFetch([
+        {
+          response: makeApiResponse([
+            ["Email/query", { ids: ["email1"] }, "0"],
+            ["Email/get", { list: [MOCK_EMAIL_RAW], notFound: [] }, "1"],
+          ]),
+        },
+      ]);
+
+      const messages = await backend.listMessages();
+
+      expect(messages[0].tags).toBeUndefined();
+    });
+  });
+
   describe("disconnect()", () => {
     it("clears session state", async () => {
       setupConnectedBackend();

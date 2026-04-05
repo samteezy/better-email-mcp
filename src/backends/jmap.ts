@@ -3,9 +3,12 @@ import {
   EmailBackend,
   EmailMessage,
   ListMessagesOptions,
+  MoveMessagesOptions,
   SearchOptions,
   SendMessageOptions,
+  TagMessagesOptions,
 } from "../types.js";
+import { validateTagName } from "./imap.js";
 
 export interface JmapConfig {
   token: string;
@@ -494,6 +497,128 @@ export class JmapBackend implements EmailBackend {
     return { id: createdId };
   }
 
+  async tagMessages(
+    options: TagMessagesOptions
+  ): Promise<{ tagged: string[] }> {
+    this.ensureConnected();
+
+    validateTagName(options.tag);
+
+    // Build per-email update using JMAP patch paths
+    const update: Record<string, Record<string, unknown>> = {};
+    for (const id of options.ids) {
+      update[id] = {
+        [`keywords/${options.tag}`]:
+          options.action === "add" ? true : null,
+      };
+    }
+
+    const responses = await this.jmapRequest([
+      [
+        "Email/set",
+        {
+          accountId: this.session!.accountId,
+          update,
+        },
+        "0",
+      ],
+    ]);
+
+    const setResponse = this.findResponse(responses, "Email/set");
+    const tagged: string[] = [];
+    const updated = setResponse.updated ?? {};
+    for (const id of options.ids) {
+      if (id in updated || updated[id] !== undefined) {
+        tagged.push(id);
+      }
+    }
+
+    // Report errors for any that weren't updated
+    const notUpdated = setResponse.notUpdated ?? {};
+    if (Object.keys(notUpdated).length > 0) {
+      const errors = Object.entries(notUpdated)
+        .map(
+          ([id, err]: [string, unknown]) =>
+            `${id}: ${(err as { description?: string }).description ?? "unknown error"}`
+        )
+        .join("; ");
+      throw new Error(`Failed to tag some messages: ${errors}`);
+    }
+
+    return { tagged: options.ids };
+  }
+
+  async moveMessages(
+    options: MoveMessagesOptions
+  ): Promise<{ moved: string[] }> {
+    this.ensureConnected();
+
+    const destId = this.mailboxNameToId.get(options.folder);
+    if (!destId) {
+      throw new Error(`Unknown folder: ${options.folder}`);
+    }
+
+    // First, fetch current mailboxIds for all messages so we can remove them
+    const fetchResponses = await this.jmapRequest([
+      [
+        "Email/get",
+        {
+          accountId: this.session!.accountId,
+          ids: options.ids,
+          properties: ["mailboxIds"],
+        },
+        "0",
+      ],
+    ]);
+
+    const emailResponse = this.findResponse(fetchResponses, "Email/get");
+    const emails: { id: string; mailboxIds: Record<string, boolean> }[] =
+      emailResponse.list ?? [];
+
+    // Build update: set destination to true, set all current mailboxes to null
+    const update: Record<string, Record<string, unknown>> = {};
+    for (const email of emails) {
+      const patch: Record<string, unknown> = {
+        [`mailboxIds/${destId}`]: true,
+      };
+      for (const currentMailboxId of Object.keys(email.mailboxIds ?? {})) {
+        if (currentMailboxId !== destId) {
+          patch[`mailboxIds/${currentMailboxId}`] = null;
+        }
+      }
+      update[email.id] = patch;
+    }
+
+    if (Object.keys(update).length === 0) {
+      return { moved: [] };
+    }
+
+    const setResponses = await this.jmapRequest([
+      [
+        "Email/set",
+        {
+          accountId: this.session!.accountId,
+          update,
+        },
+        "0",
+      ],
+    ]);
+
+    const setResponse = this.findResponse(setResponses, "Email/set");
+    const notUpdated = setResponse.notUpdated ?? {};
+    if (Object.keys(notUpdated).length > 0) {
+      const errors = Object.entries(notUpdated)
+        .map(
+          ([id, err]: [string, unknown]) =>
+            `${id}: ${(err as { description?: string }).description ?? "unknown error"}`
+        )
+        .join("; ");
+      throw new Error(`Failed to move some messages: ${errors}`);
+    }
+
+    return { moved: Object.keys(update) };
+  }
+
   // --- Private helpers ---
 
   private ensureConnected(): JmapSession {
@@ -588,6 +713,14 @@ export class JmapBackend implements EmailBackend {
     const cc = (raw.cc ?? []).map((a) => a.email);
     if (cc.length > 0) {
       message.cc = cc;
+    }
+
+    // Expose custom keywords as tags — exclude $-prefixed system keywords
+    const tags = Object.keys(raw.keywords ?? {}).filter(
+      (k) => !k.startsWith("$")
+    );
+    if (tags.length > 0) {
+      message.tags = tags;
     }
 
     return message;

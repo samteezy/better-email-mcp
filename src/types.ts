@@ -28,6 +28,7 @@ export interface EmailMessage {
   body?: string;
   isRead: boolean;
   folder: string;
+  tags?: string[];
   attachments?: AttachmentInfo[];
 }
 
@@ -53,6 +54,17 @@ export interface SendMessageOptions {
   inReplyTo?: string;
 }
 
+export interface TagMessagesOptions {
+  ids: string[];
+  tag: string;
+  action: "add" | "remove";
+}
+
+export interface MoveMessagesOptions {
+  ids: string[];
+  folder: string;
+}
+
 export interface EmailBackend {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
@@ -67,6 +79,8 @@ export interface EmailBackend {
     partId: string,
     maxSize?: number
   ): Promise<AttachmentContent>;
+  tagMessages?(options: TagMessagesOptions): Promise<{ tagged: string[] }>;
+  moveMessages?(options: MoveMessagesOptions): Promise<{ moved: string[] }>;
 }
 
 // --- Calendar types ---

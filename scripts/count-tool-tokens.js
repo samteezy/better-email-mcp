@@ -58,7 +58,7 @@ const emailBackend = {
   connect: noop, disconnect: noop,
   listFolders: noopArr, listMessages: noopArr,
   getMessage: noopNull, searchMessages: noopArr,
-  sendMessage: noop, getAttachment: noop,
+  sendMessage: noop, getAttachment: noop, tagMessages: noop, moveMessages: noop,
 };
 
 const calendarBackend = {
