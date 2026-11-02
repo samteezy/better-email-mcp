@@ -1,7 +1,7 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve, relative, join } from "node:path";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { EmailBackend, EmailMessage } from "../types.js";
 import {
@@ -50,10 +50,9 @@ export function registerEmailTools(
   const disabled = parseDisabledTools();
 
   if (toolEnabled("list_folders", disabled)) {
-    server.tool(
+    server.registerTool(
       "list_folders",
-      "List all email folders/mailboxes",
-      {},
+      { description: "List all email folders/mailboxes", inputSchema: z.object({}) },
       async () => {
         try {
           const folders = await backend.listFolders();
@@ -66,10 +65,9 @@ export function registerEmailTools(
   }
 
   if (toolEnabled("list_messages", disabled)) {
-    server.tool(
+    server.registerTool(
       "list_messages",
-      "List recent email messages, optionally filtered by folder",
-      {
+      { description: "List recent email messages, optionally filtered by folder", inputSchema: z.object({
         folder: z
           .string()
           .optional()
@@ -91,7 +89,7 @@ export function registerEmailTools(
           .boolean()
           .optional()
           .describe("Return all fields (to, cc, isRead, folder) — default returns only id, from, subject, date, snippet"),
-      },
+      }) },
       async ({ folder, limit, offset, verbose }) => {
         try {
           const messages = await backend.listMessages({ folder, limit, offset });
@@ -105,12 +103,11 @@ export function registerEmailTools(
   }
 
   if (toolEnabled("get_message", disabled)) {
-    server.tool(
+    server.registerTool(
       "get_message",
-      "Get a single email message by ID, including its full body text",
-      {
+      { description: "Get a single email message by ID, including its full body text", inputSchema: z.object({
         id: z.string().describe("The message ID"),
-      },
+      }) },
       async ({ id }) => {
         try {
           const msg = await backend.getMessage(id);
@@ -129,10 +126,9 @@ export function registerEmailTools(
   }
 
   if (toolEnabled("search_messages", disabled)) {
-    server.tool(
+    server.registerTool(
       "search_messages",
-      "Search email messages by text query",
-      {
+      { description: "Search email messages by text query", inputSchema: z.object({
         query: z.string().describe("Search query text"),
         folder: z.string().optional().describe("Folder to search within"),
         limit: z
@@ -146,7 +142,7 @@ export function registerEmailTools(
           .boolean()
           .optional()
           .describe("Return all fields (to, cc, isRead, folder) — default returns only id, from, subject, date, snippet"),
-      },
+      }) },
       async ({ query, folder, limit, verbose }) => {
         try {
           const messages = await backend.searchMessages({ query, folder, limit });
@@ -181,10 +177,9 @@ export function registerEmailTools(
         .describe("HTML body of the email. The message is sent as multipart with both plain text and HTML.");
     }
 
-    server.tool(
+    server.registerTool(
       "send_message",
-      "Send an email message",
-      sendParams,
+      { description: "Send an email message", inputSchema: z.object(sendParams) },
       async (args: Record<string, unknown>) => {
         try {
           const result = await sendFn({
@@ -207,10 +202,9 @@ export function registerEmailTools(
   if (backend.getAttachment && toolEnabled("get_attachment", disabled)) {
     const getAttachmentFn = backend.getAttachment.bind(backend);
 
-    server.tool(
+    server.registerTool(
       "get_attachment",
-      "Download an email attachment by part ID (from get_message attachments list). Returns base64-encoded content, or saves to disk if saveTo is provided.",
-      {
+      { description: "Download an email attachment by part ID (from get_message attachments list). Returns base64-encoded content, or saves to disk if saveTo is provided.", inputSchema: z.object({
         id: z.string().describe("The message ID"),
         partId: z
           .string()
@@ -223,7 +217,7 @@ export function registerEmailTools(
           .describe(
             "File path to save attachment to disk instead of returning base64 content. Must be within ATTACHMENT_DIR (defaults to ~/Downloads)"
           ),
-      },
+      }) },
       async ({ id, partId, saveTo }) => {
         try {
           const result = await getAttachmentFn(id, partId, MAX_ATTACHMENT_SIZE);

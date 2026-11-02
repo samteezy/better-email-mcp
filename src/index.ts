@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { JmapBackend } from "./backends/jmap.js";
 import { JmapContactsBackend } from "./backends/jmap-contacts.js";
 import { ImapBackend, SmtpConfig } from "./backends/imap.js";
@@ -70,13 +70,7 @@ function createBackend(): EmailBackend {
   throw new Error(`Unknown backend: ${backendType}`);
 }
 
-const server = new McpServer({
-  name: "better-email-mcp",
-  version: "0.6.4",
-});
-
 const backend = createBackend();
-registerEmailTools(server, backend);
 
 // CalDAV — activates when CALDAV_URL is set
 let calendarBackend: CalDavBackend | null = null;
@@ -93,8 +87,6 @@ if (process.env.CALDAV_URL) {
     username,
     password,
   });
-  registerCalendarTools(server, calendarBackend);
-  registerTaskTools(server, calendarBackend);
 }
 
 // Contacts — CardDAV when CARDDAV_URL is set, otherwise JMAP contacts when using JMAP backend
@@ -112,19 +104,32 @@ if (process.env.CARDDAV_URL) {
     username,
     password,
   });
-  registerContactTools(server, contactsBackend);
 } else if (backend instanceof JmapBackend) {
   // JMAP contacts activate automatically — no extra config needed
   contactsBackend = new JmapContactsBackend(backend);
-  registerContactTools(server, contactsBackend);
+}
+
+function createServer(): McpServer {
+  const server = new McpServer({
+    name: "better-email-mcp",
+    version: "0.6.4",
+  });
+  registerEmailTools(server, backend);
+  if (calendarBackend) {
+    registerCalendarTools(server, calendarBackend);
+    registerTaskTools(server, calendarBackend);
+  }
+  if (contactsBackend) registerContactTools(server, contactsBackend);
+  return server;
 }
 
 async function main() {
   await backend.connect();
   if (calendarBackend) await calendarBackend.connect();
   if (contactsBackend) await contactsBackend.connect();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // serveStdio negotiates the protocol era per connection: 2026-07-28 clients
+  // get the stateless protocol, older clients (initialize handshake) are still served.
+  serveStdio(createServer);
 }
 
 main().catch((err) => {

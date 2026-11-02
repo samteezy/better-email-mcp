@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { ContactsBackend, Contact } from "../types.js";
 import {
@@ -26,10 +26,9 @@ export function registerContactTools(
   const defaultAddressBook = process.env.CARDDAV_DEFAULT_ADDRESS_BOOK?.trim() || undefined;
 
   if (toolEnabled("list_address_books", disabled)) {
-    server.tool(
+    server.registerTool(
       "list_address_books",
-      "List all address books",
-      {},
+      { description: "List all address books", inputSchema: z.object({}) },
       async () => {
         try {
           const books = await backend.listAddressBooks();
@@ -42,10 +41,9 @@ export function registerContactTools(
   }
 
   if (toolEnabled("list_contacts", disabled)) {
-    server.tool(
+    server.registerTool(
       "list_contacts",
-      "List contacts from address books",
-      {
+      { description: "List contacts from address books", inputSchema: z.object({
         addressBook: z
           .string()
           .optional()
@@ -63,7 +61,7 @@ export function registerContactTools(
           .describe(
             "Return all fields (organization, title, address, notes) — default returns only id, href, name, emails, phones, addressBook"
           ),
-      },
+      }) },
       async ({ addressBook, limit, verbose }) => {
         try {
           const book = addressBook ?? defaultAddressBook;
@@ -80,14 +78,13 @@ export function registerContactTools(
   }
 
   if (toolEnabled("get_contact", disabled)) {
-    server.tool(
+    server.registerTool(
       "get_contact",
-      "Get a single contact by href",
-      {
+      { description: "Get a single contact by href", inputSchema: z.object({
         href: z
           .string()
           .describe("The contact href (from list_contacts or search_contacts)"),
-      },
+      }) },
       async ({ href }) => {
         try {
           const contact = await backend.getContact(href);
@@ -106,10 +103,9 @@ export function registerContactTools(
   }
 
   if (toolEnabled("search_contacts", disabled)) {
-    server.tool(
+    server.registerTool(
       "search_contacts",
-      "Search contacts by name, email, phone, or organization",
-      {
+      { description: "Search contacts by name, email, phone, or organization", inputSchema: z.object({
         query: z.string().describe("Search text"),
         addressBook: z
           .string()
@@ -128,7 +124,7 @@ export function registerContactTools(
           .describe(
             "Return all fields (organization, title, address, notes) — default returns only id, href, name, emails, phones, addressBook"
           ),
-      },
+      }) },
       async ({ query, addressBook, limit, verbose }) => {
         try {
           const book = addressBook ?? defaultAddressBook;

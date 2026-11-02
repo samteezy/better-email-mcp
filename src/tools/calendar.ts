@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { CalendarBackend, CalendarEvent } from "../types.js";
 import {
@@ -26,10 +26,9 @@ export function registerCalendarTools(
   const defaultCalendar = process.env.CALDAV_DEFAULT_CALENDAR?.trim() || undefined;
 
   if (toolEnabled("list_calendars", disabled)) {
-    server.tool(
+    server.registerTool(
       "list_calendars",
-      "List all calendars",
-      {},
+      { description: "List all calendars", inputSchema: z.object({}) },
       async () => {
         try {
           const calendars = await backend.listCalendars();
@@ -42,10 +41,9 @@ export function registerCalendarTools(
   }
 
   if (toolEnabled("list_events", disabled)) {
-    server.tool(
+    server.registerTool(
       "list_events",
-      "List calendar events",
-      {
+      { description: "List calendar events", inputSchema: z.object({
         calendar: z
           .string()
           .optional()
@@ -63,7 +61,7 @@ export function registerCalendarTools(
           .describe(
             "Return all fields (description, organizer, attendees, recurrence, status) — default returns only id, href, title, start, end, location, calendar, allDay"
           ),
-      },
+      }) },
       async ({ calendar, limit, verbose }) => {
         try {
           const cal = calendar ?? defaultCalendar;
@@ -78,14 +76,13 @@ export function registerCalendarTools(
   }
 
   if (toolEnabled("get_event", disabled)) {
-    server.tool(
+    server.registerTool(
       "get_event",
-      "Get a single calendar event by href",
-      {
+      { description: "Get a single calendar event by href", inputSchema: z.object({
         href: z
           .string()
           .describe("The event href (from list_events or search_events)"),
-      },
+      }) },
       async ({ href }) => {
         try {
           const event = await backend.getEvent(href);
@@ -104,10 +101,9 @@ export function registerCalendarTools(
   }
 
   if (toolEnabled("search_events", disabled)) {
-    server.tool(
+    server.registerTool(
       "search_events",
-      "Search calendar events by text query",
-      {
+      { description: "Search calendar events by text query", inputSchema: z.object({
         query: z.string().describe("Search text (matches title, description, location)"),
         calendar: z.string().optional().describe("Calendar name to search within"),
         limit: z
@@ -123,7 +119,7 @@ export function registerCalendarTools(
           .describe(
             "Return all fields (description, organizer, attendees, recurrence, status) — default returns only id, href, title, start, end, location, calendar, allDay"
           ),
-      },
+      }) },
       async ({ query, calendar, limit, verbose }) => {
         try {
           const cal = calendar ?? defaultCalendar;

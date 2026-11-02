@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { TaskBackend, TaskInfo } from "../types.js";
 import {
@@ -26,10 +26,9 @@ export function registerTaskTools(
   const defaultCalendar = process.env.CALDAV_DEFAULT_CALENDAR?.trim() || undefined;
 
   if (toolEnabled("list_tasks", disabled)) {
-    server.tool(
+    server.registerTool(
       "list_tasks",
-      "List tasks/todos",
-      {
+      { description: "List tasks/todos", inputSchema: z.object({
         calendar: z
           .string()
           .optional()
@@ -55,7 +54,7 @@ export function registerTaskTools(
           .describe(
             "Return all fields (description, categories, start, completed, percentComplete, recurrence) — default returns only id, href, title, status, due, priority, calendar"
           ),
-      },
+      }) },
       async ({ calendar, limit, status, includeCompleted, verbose }) => {
         try {
           const cal = calendar ?? defaultCalendar;
@@ -70,14 +69,13 @@ export function registerTaskTools(
   }
 
   if (toolEnabled("get_task", disabled)) {
-    server.tool(
+    server.registerTool(
       "get_task",
-      "Get a single task by href",
-      {
+      { description: "Get a single task by href", inputSchema: z.object({
         href: z
           .string()
           .describe("The task href (from list_tasks or search_tasks)"),
-      },
+      }) },
       async ({ href }) => {
         try {
           const task = await backend.getTask(href);
@@ -96,10 +94,9 @@ export function registerTaskTools(
   }
 
   if (toolEnabled("search_tasks", disabled)) {
-    server.tool(
+    server.registerTool(
       "search_tasks",
-      "Search tasks by text query",
-      {
+      { description: "Search tasks by text query", inputSchema: z.object({
         query: z.string().describe("Search text (matches title, description, categories)"),
         calendar: z.string().optional().describe("Calendar name to search within"),
         limit: z
@@ -115,7 +112,7 @@ export function registerTaskTools(
           .describe(
             "Return all fields — default returns only id, href, title, status, due, priority, calendar"
           ),
-      },
+      }) },
       async ({ query, calendar, limit, verbose }) => {
         try {
           const cal = calendar ?? defaultCalendar;
@@ -130,10 +127,9 @@ export function registerTaskTools(
   }
 
   if (toolEnabled("create_task", disabled)) {
-    server.tool(
+    server.registerTool(
       "create_task",
-      "Create a new task",
-      {
+      { description: "Create a new task", inputSchema: z.object({
         title: z.string().describe("Task title"),
         description: z.string().optional().describe("Task description"),
         due: z.string().optional().describe("Due date/time in ISO 8601 format"),
@@ -156,7 +152,7 @@ export function registerTaskTools(
           .string()
           .optional()
           .describe("Target calendar name (uses first task-capable calendar if omitted)"),
-      },
+      }) },
       async ({ title, description, due, priority, categories, status, calendar }) => {
         try {
           const cal = calendar ?? defaultCalendar;
@@ -178,10 +174,9 @@ export function registerTaskTools(
   }
 
   if (toolEnabled("update_task", disabled)) {
-    server.tool(
+    server.registerTool(
       "update_task",
-      "Update an existing task",
-      {
+      { description: "Update an existing task", inputSchema: z.object({
         href: z.string().describe("The task href"),
         title: z.string().optional().describe("New title"),
         description: z.string().optional().describe("New description"),
@@ -208,7 +203,7 @@ export function registerTaskTools(
           .array(z.string())
           .optional()
           .describe("New category tags"),
-      },
+      }) },
       async ({ href, title, description, due, priority, status, percentComplete, categories }) => {
         try {
           const task = await backend.updateTask({
@@ -230,12 +225,11 @@ export function registerTaskTools(
   }
 
   if (toolEnabled("complete_task", disabled)) {
-    server.tool(
+    server.registerTool(
       "complete_task",
-      "Mark a task as completed",
-      {
+      { description: "Mark a task as completed", inputSchema: z.object({
         href: z.string().describe("The task href"),
-      },
+      }) },
       async ({ href }) => {
         try {
           const task = await backend.completeTask(href);
