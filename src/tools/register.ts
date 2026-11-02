@@ -209,7 +209,7 @@ export function registerEmailTools(
 
     server.registerTool(
       "send_message",
-      { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, description: "Send an email message", inputSchema: z.object(sendParams) },
+      { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, description: "Send an email message", inputSchema: z.object(sendParams) },
       async (args: Record<string, unknown>, ctx) => {
         try {
           // Ask the user to confirm before sending when the client supports
