@@ -112,7 +112,7 @@ if (process.env.CARDDAV_URL) {
 function createServer(): McpServer {
   const server = new McpServer({
     name: "better-email-mcp",
-    version: "0.6.4",
+    version: "0.7.0",
   });
   registerEmailTools(server, backend);
   if (calendarBackend) {
