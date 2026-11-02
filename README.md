@@ -72,7 +72,7 @@ The server is configured entirely through environment variables.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EMAIL_BACKEND` | `"jmap"` or `"imap"` | `"jmap"` |
+| `EMAIL_BACKEND` | `"imap"` or `"jmap"` | `"imap"` |
 | `EMAIL_FORMAT` | `"plain"` or `"html"` | `"plain"` |
 
 When set to `html`, the `send_message` tool requires an `htmlBody` field in addition to `textBody`, and messages are sent as multipart with both plain text and HTML. When set to `plain` (the default), only `textBody` is exposed — the LLM cannot generate HTML email.

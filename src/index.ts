@@ -13,7 +13,7 @@ import { registerContactTools } from "./tools/contacts.js";
 import { EmailBackend, ContactsBackend } from "./types.js";
 
 function createBackend(): EmailBackend {
-  const backendType = process.env.EMAIL_BACKEND ?? "jmap";
+  const backendType = process.env.EMAIL_BACKEND ?? "imap";
 
   if (backendType === "jmap") {
     const token = process.env.JMAP_TOKEN;
