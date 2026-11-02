@@ -28,7 +28,7 @@ export function registerTaskTools(
   if (toolEnabled("list_tasks", disabled)) {
     server.registerTool(
       "list_tasks",
-      { description: "List tasks/todos", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "List tasks/todos", inputSchema: z.object({
         calendar: z
           .string()
           .optional()
@@ -71,7 +71,7 @@ export function registerTaskTools(
   if (toolEnabled("get_task", disabled)) {
     server.registerTool(
       "get_task",
-      { description: "Get a single task by href", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "Get a single task by href", inputSchema: z.object({
         href: z
           .string()
           .describe("The task href (from list_tasks or search_tasks)"),
@@ -96,7 +96,7 @@ export function registerTaskTools(
   if (toolEnabled("search_tasks", disabled)) {
     server.registerTool(
       "search_tasks",
-      { description: "Search tasks by text query", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "Search tasks by text query", inputSchema: z.object({
         query: z.string().describe("Search text (matches title, description, categories)"),
         calendar: z.string().optional().describe("Calendar name to search within"),
         limit: z
@@ -129,7 +129,7 @@ export function registerTaskTools(
   if (toolEnabled("create_task", disabled)) {
     server.registerTool(
       "create_task",
-      { description: "Create a new task", inputSchema: z.object({
+      { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, description: "Create a new task", inputSchema: z.object({
         title: z.string().describe("Task title"),
         description: z.string().optional().describe("Task description"),
         due: z.string().optional().describe("Due date/time in ISO 8601 format"),
@@ -176,7 +176,7 @@ export function registerTaskTools(
   if (toolEnabled("update_task", disabled)) {
     server.registerTool(
       "update_task",
-      { description: "Update an existing task", inputSchema: z.object({
+      { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }, description: "Update an existing task", inputSchema: z.object({
         href: z.string().describe("The task href"),
         title: z.string().optional().describe("New title"),
         description: z.string().optional().describe("New description"),
@@ -227,7 +227,7 @@ export function registerTaskTools(
   if (toolEnabled("complete_task", disabled)) {
     server.registerTool(
       "complete_task",
-      { description: "Mark a task as completed", inputSchema: z.object({
+      { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }, description: "Mark a task as completed", inputSchema: z.object({
         href: z.string().describe("The task href"),
       }) },
       async ({ href }) => {

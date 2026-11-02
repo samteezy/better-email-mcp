@@ -28,7 +28,7 @@ export function registerContactTools(
   if (toolEnabled("list_address_books", disabled)) {
     server.registerTool(
       "list_address_books",
-      { description: "List all address books", inputSchema: z.object({}) },
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "List all address books", inputSchema: z.object({}) },
       async () => {
         try {
           const books = await backend.listAddressBooks();
@@ -43,7 +43,7 @@ export function registerContactTools(
   if (toolEnabled("list_contacts", disabled)) {
     server.registerTool(
       "list_contacts",
-      { description: "List contacts from address books", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "List contacts from address books", inputSchema: z.object({
         addressBook: z
           .string()
           .optional()
@@ -80,7 +80,7 @@ export function registerContactTools(
   if (toolEnabled("get_contact", disabled)) {
     server.registerTool(
       "get_contact",
-      { description: "Get a single contact by href", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "Get a single contact by href", inputSchema: z.object({
         href: z
           .string()
           .describe("The contact href (from list_contacts or search_contacts)"),
@@ -105,7 +105,7 @@ export function registerContactTools(
   if (toolEnabled("search_contacts", disabled)) {
     server.registerTool(
       "search_contacts",
-      { description: "Search contacts by name, email, phone, or organization", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "Search contacts by name, email, phone, or organization", inputSchema: z.object({
         query: z.string().describe("Search text"),
         addressBook: z
           .string()

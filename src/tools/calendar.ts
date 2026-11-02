@@ -28,7 +28,7 @@ export function registerCalendarTools(
   if (toolEnabled("list_calendars", disabled)) {
     server.registerTool(
       "list_calendars",
-      { description: "List all calendars", inputSchema: z.object({}) },
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "List all calendars", inputSchema: z.object({}) },
       async () => {
         try {
           const calendars = await backend.listCalendars();
@@ -43,7 +43,7 @@ export function registerCalendarTools(
   if (toolEnabled("list_events", disabled)) {
     server.registerTool(
       "list_events",
-      { description: "List calendar events", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "List calendar events", inputSchema: z.object({
         calendar: z
           .string()
           .optional()
@@ -78,7 +78,7 @@ export function registerCalendarTools(
   if (toolEnabled("get_event", disabled)) {
     server.registerTool(
       "get_event",
-      { description: "Get a single calendar event by href", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "Get a single calendar event by href", inputSchema: z.object({
         href: z
           .string()
           .describe("The event href (from list_events or search_events)"),
@@ -103,7 +103,7 @@ export function registerCalendarTools(
   if (toolEnabled("search_events", disabled)) {
     server.registerTool(
       "search_events",
-      { description: "Search calendar events by text query", inputSchema: z.object({
+      { annotations: { readOnlyHint: true, openWorldHint: false }, description: "Search calendar events by text query", inputSchema: z.object({
         query: z.string().describe("Search text (matches title, description, location)"),
         calendar: z.string().optional().describe("Calendar name to search within"),
         limit: z
