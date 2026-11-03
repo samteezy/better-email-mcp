@@ -1,4 +1,4 @@
-import { validateSavePath, toLeanMessages, parseEmailFormat } from "./register";
+import { validateSavePath, toLeanMessages, parseEmailFormat, describeSend } from "./register";
 import { EmailMessage } from "../types";
 
 // validateSavePath uses ATTACHMENT_DIR which resolves at module load from process.env.
@@ -126,5 +126,20 @@ describe("parseEmailFormat()", () => {
   it("defaults to plain for unknown values", () => {
     process.env.EMAIL_FORMAT = "markdown";
     expect(parseEmailFormat()).toBe("plain");
+  });
+});
+
+describe("describeSend()", () => {
+  it("lists recipients, subject, and body", () => {
+    expect(
+      describeSend({ to: ["a@x.com", "b@x.com"], cc: ["c@x.com"], subject: "Hi", textBody: "Body" })
+    ).toBe("Send this email?\nTo: a@x.com, b@x.com\nCc: c@x.com\nSubject: Hi\n\nBody");
+  });
+
+  it("omits empty cc/bcc and truncates long bodies", () => {
+    const text = describeSend({ to: ["a@x.com"], subject: "S", textBody: "x".repeat(600) });
+    expect(text).not.toContain("Cc:");
+    expect(text).not.toContain("Bcc:");
+    expect(text.endsWith("x".repeat(500) + "…")).toBe(true);
   });
 });

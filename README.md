@@ -72,7 +72,7 @@ The server is configured entirely through environment variables.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EMAIL_BACKEND` | `"jmap"` or `"imap"` | `"jmap"` |
+| `EMAIL_BACKEND` | `"imap"` or `"jmap"` | `"imap"` |
 | `EMAIL_FORMAT` | `"plain"` or `"html"` | `"plain"` |
 
 When set to `html`, the `send_message` tool requires an `htmlBody` field in addition to `textBody`, and messages are sent as multipart with both plain text and HTML. When set to `plain` (the default), only `textBody` is exposed — the LLM cannot generate HTML email.
@@ -220,6 +220,8 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 
 ## Tools
 
+Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, etc.) so clients can auto-approve read-only tools and warn on writes.
+
 ### Email
 
 | Tool | Description |
@@ -229,7 +231,7 @@ Email and contacts use JMAP (automatic), calendar uses CalDAV. To use CardDAV fo
 | `get_message` | Get a single message by ID, including full body and attachment metadata |
 | `search_messages` | Search messages by text query |
 | `get_attachment` | Download an email attachment by part ID. Returns base64 content, or saves to disk if `saveTo` path is provided |
-| `send_message` | Send an email (JMAP, or IMAP with SMTP configured) |
+| `send_message` | Send an email (JMAP, or IMAP with SMTP configured). If the client supports elicitation, the user is asked to confirm recipients, subject, and body before it sends; otherwise it sends immediately |
 
 ### Calendar (CalDAV)
 

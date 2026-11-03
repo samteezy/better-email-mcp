@@ -4,7 +4,7 @@
  *
  * Run after build:  npm run count-tokens
  *
- * Creates a mock McpServer that captures tool() calls, converts Zod schemas
+ * Creates a mock McpServer that captures registerTool() calls, converts Zod schemas
  * to JSON Schema (same as the MCP SDK does), then counts characters and
  * estimates tokens (~3.5 chars/token for JSON with BPE).
  */
@@ -23,7 +23,8 @@ function createCapturingServer() {
   const tools = [];
 
   const server = {
-    tool(name, description, schema, _handler) {
+    registerTool(name, { description, inputSchema: zodObject }, _handler) {
+      const schema = zodObject.shape;
       const jsonProps = {};
       const required = [];
 

@@ -19,7 +19,7 @@ CalDAV, CardDAV, and tasks activate alongside whichever email backend is configu
 
 - **TypeScript** on Node.js, compiled with `tsc`
 - **npm** for package management
-- **MCP SDK**: `@modelcontextprotocol/sdk` — uses `McpServer` with `StdioServerTransport`
+- **MCP SDK**: `@modelcontextprotocol/server` (v2, MCP spec 2026-07-28) — uses `McpServer` + `registerTool()`, served via `serveStdio()` (also serves 2025-era clients)
 - **Zod** for input validation on MCP tool schemas
 - **Jest** with `ts-jest` for testing
 
